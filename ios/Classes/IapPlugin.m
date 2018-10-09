@@ -230,6 +230,7 @@
 
 @interface IapObserver : NSObject<SKPaymentTransactionObserver>
     @property (atomic, retain) FlutterMethodChannel* channel;
+    @property (atomic, retain) NSArray<SKPaymentTransaction *> * lastUpdatedTransactions;
 @end
 
 @implementation IapObserver{
@@ -243,6 +244,7 @@
 }
 
 -(void)paymentQueue:(SKPaymentQueue *)queue updatedTransactions:(NSArray<SKPaymentTransaction *> *)transactions {
+    self.lastUpdatedTransactions = transactions;
     NSDictionary* data = @{@"transactions":[_codec encodeTransactions:transactions]};
     [self.channel invokeMethod:@"SKPaymentQueue#didUpdateTransactions" arguments:data];
 }
@@ -341,6 +343,36 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
             _observer = nil;
         }
         result(nil);
+    } else if ([@"SKPaymentQueue#addPayment" isEqualToString:call.method]) {
+        if (_observer == nil) {
+            result([FlutterError
+                    errorWithCode:@"IAP_STORE_KIT_OBSERVER_MISSING"
+                    message:@"Must set transaction observer before adding payments to the queue"
+                    details:nil]);
+        } else {
+            NSDictionary* data = (NSDictionary*)call.arguments[@"payment"];
+            [self addPayment:data result:result];
+        }
+    } else if ([@"SKPaymentQueue#finishTransaction" isEqualToString:call.method]) {
+        if (_observer == nil) {
+            result([FlutterError
+                    errorWithCode:@"IAP_STORE_KIT_OBSERVER_MISSING"
+                    message:@"Must set transaction observer before attempting to finish transactions"
+                    details:nil]);
+        } else {
+            NSString* transactionId = call.arguments[@"transactionIdentifier"];
+            [self finishTransaction:transactionId result:result];
+        }
+    } else if ([@"SKPaymentQueue#restoreCompletedTransactions" isEqualToString:call.method]) {
+        if (_observer == nil) {
+            result([FlutterError
+                    errorWithCode:@"IAP_STORE_KIT_OBSERVER_MISSING"
+                    message:@"Must set transaction observer before attempting to restore transactions"
+                    details:nil]);
+        } else {
+            NSString* applicationUsername = call.arguments[@"applicationUsername"];
+            [self restoreTransactions:applicationUsername result:result];
+        }
     } else {
         result(FlutterMethodNotImplemented);
     }
@@ -364,6 +396,59 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
         @"invalidProductIdentifiers": response.invalidProductIdentifiers,
     };
     result(payload);
+}
+
+- (void)addPayment:(nonnull NSDictionary*)paymentData result:(FlutterResult)result {
+    NSString* productId = [paymentData objectForKey:@"productIdentifier"];
+    SKProduct* product = [self lookupProduct:productId];
+    if (product == nil) {
+        result([FlutterError errorWithCode:@"IAP_STORE_KIT_NO_PRODUCT" message:@"Must fetch products before adding payments" details:nil]);
+        return;
+    }
+    SKMutablePayment* payment = [SKMutablePayment paymentWithProduct: product];
+    NSNumber* quantity = [paymentData objectForKey:@"quantity"];
+    NSString* applicationUsername = [paymentData objectForKey:@"applicationUsername"];
+    NSNumber* simulatesAskToBuyInSandbox = [paymentData objectForKey:@"simulatesAskToBuyInSandbox"];
+    
+    payment.quantity = [quantity integerValue];
+    payment.applicationUsername = applicationUsername;
+    if (@available(iOS 8.3, *)) {
+        payment.simulatesAskToBuyInSandbox = [simulatesAskToBuyInSandbox boolValue];
+    }
+    
+    [[SKPaymentQueue defaultQueue] addPayment:payment];
+    result(nil);
+}
+
+- (SKProduct*)lookupProduct:(NSString*)productId {
+    for (SKProduct* product in _products) {
+        if (product.productIdentifier == productId) return product;
+    }
+    return nil;
+}
+
+- (void)finishTransaction:(nonnull NSString*)transactionId result:(FlutterResult)result {
+    SKPaymentTransaction* tx = [self lookupTransaction:transactionId];
+    if (tx == nil) {
+        result([FlutterError errorWithCode:@"IAP_STORE_KIT_TRANSACTION_NOT_FOUND" message:@"No transaction found for provided identifier" details:nil]);
+        return;
+    }
+    [[SKPaymentQueue defaultQueue] finishTransaction:tx];
+}
+
+- (SKPaymentTransaction*)lookupTransaction:(NSString*)transactionId {
+    for (SKPaymentTransaction* tx in _observer.lastUpdatedTransactions) {
+        if (tx.transactionIdentifier == transactionId) return tx;
+    }
+    return nil;
+}
+
+- (void)restoreTransactions:(nonnull NSString*)applicationUsername result:(FlutterResult)result {
+    if ([applicationUsername isEqual:[NSNull null]]) {
+        [[SKPaymentQueue defaultQueue] restoreCompletedTransactions];
+    } else {
+        [[SKPaymentQueue defaultQueue] restoreCompletedTransactionsWithApplicationUsername:applicationUsername];
+    }
 }
 
 @end

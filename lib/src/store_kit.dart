@@ -685,6 +685,22 @@ class SKPayment {
             quantity != null &&
             simulatesAskToBuyInSandbox != null);
 
+  factory SKPayment.withProduct(
+    SKProduct product, {
+    int quantity: 1,
+    String applicationUsername,
+    bool simulatesAskToBuyInSandbox: false,
+  }) {
+    assert(product != null, 'Product cannot be null.');
+    assert(quantity != null && quantity >= 1, 'Invalid quantity for payment.');
+    return SKPayment._(
+      productIdentifier: product.productIdentifier,
+      quantity: quantity,
+      applicationUsername: applicationUsername,
+      simulatesAskToBuyInSandbox: simulatesAskToBuyInSandbox,
+    );
+  }
+
   factory SKPayment.fromJson(Map<String, dynamic> data) {
     final productIdentifier = data['productIdentifier'] as String;
     final quantity = data['quantity'] as int;
@@ -697,6 +713,15 @@ class SKPayment {
       applicationUsername: applicationUsername,
       simulatesAskToBuyInSandbox: simulatesAskToBuyInSandbox,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'productIdentifier': productIdentifier,
+      'quantity': quantity,
+      'applicationUsername': applicationUsername,
+      'simulatesAskToBuyInSandbox': simulatesAskToBuyInSandbox,
+    };
   }
 }
 
@@ -790,7 +815,10 @@ class SKPaymentQueue {
   /// sends the [SKPaymentTransaction] object that encapsulates the request
   /// to all transaction observers.
   Future<void> addPayment(SKPayment payment) async {
-    await StoreKit._channel.invokeMethod('SKPaymentQueue#addPayment');
+    final data = {
+      'payment': payment.toJson(),
+    };
+    await StoreKit._channel.invokeMethod('SKPaymentQueue#addPayment', data);
   }
 
   /// Completes a pending transaction.
@@ -804,7 +832,18 @@ class SKPaymentQueue {
   /// Calling this method on a transaction that is in the
   /// [SKPaymentTransactionState.purchasing] state throws an exception.
   Future<void> finishTransaction(SKPaymentTransaction transaction) async {
-    await StoreKit._channel.invokeMethod('SKPaymentQueue#finishTransaction');
+    assert(transaction != null);
+    assert(
+        transaction.transactionIdentifier != null,
+        'Attempt to finalize transaction without identifier. '
+        'This indicates that provided transaction has not been processed by the App Store yet '
+        'and is not in either "purchsed" or "restored" state. '
+        'Only purchased transactions can be finalized.');
+    final data = <String, dynamic>{
+      'transactionIdentifier': transaction.transactionIdentifier,
+    };
+    await StoreKit._channel
+        .invokeMethod('SKPaymentQueue#finishTransaction', data);
   }
 
   /// Asks the payment queue to restore previously completed purchases.
@@ -838,10 +877,9 @@ class SKPaymentQueue {
   /// * Your app's build version does not meet the guidelines for the `CFBundleVersion` key.
   Future<void> restoreCompletedTransactions(
       {String applicationUsername}) async {
+    final data = <String, dynamic>{'applicationUsername': applicationUsername};
     await StoreKit._channel
-        .invokeMethod('StoreKit#restoreCompletedTransactions', {
-      'applicationUsername': applicationUsername,
-    });
+        .invokeMethod('SKPaymentQueue#restoreCompletedTransactions', data);
   }
 
   /// Adds a set of downloads to the download list.
