@@ -80,6 +80,18 @@ class StoreKit {
   }
 
   SKPaymentQueue get paymentQueue => SKPaymentQueue.instance;
+
+  /// The file URL for the bundle’s App Store receipt.
+  ///
+  /// For an application purchased from the App Store, use this property to locate
+  /// the receipt. This property makes no guarantee about whether there is a
+  /// file at the URL — only that if a receipt is present, that is its location.
+  Future<Uri> get appStoreReceiptUrl async {
+    final String response =
+        await _channel.invokeMethod('StoreKit#appStoreReceiptUrl');
+    if (response == null) return null;
+    return Uri.parse(response);
+  }
 }
 
 /// Information about a product you previously registered in App Store Connect.

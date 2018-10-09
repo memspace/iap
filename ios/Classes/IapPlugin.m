@@ -321,11 +321,12 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
 }
 
 - (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {
-    if ([@"getPlatformVersion" isEqualToString:call.method]) {
-        result([@"iOS " stringByAppendingString:[[UIDevice currentDevice] systemVersion]]);
-    } else if ([@"StoreKit#products" isEqualToString:call.method]) {
+    if ([@"StoreKit#products" isEqualToString:call.method]) {
         NSArray<NSString*>* ids = (NSArray<NSString*>*)call.arguments[@"productIdentifiers"];
         [self sendProductsRequest:ids result:result];
+    } else if ([@"StoreKit#appStoreReceiptUrl" isEqualToString:call.method]) {
+        NSURL *receiptURL = [[NSBundle mainBundle] appStoreReceiptURL];
+        result(receiptURL.absoluteString);
     } else if ([@"SKPaymentQueue#canMakePayments" isEqualToString:call.method]) {
         BOOL canMakePayments = [SKPaymentQueue canMakePayments];
         result([NSNumber numberWithBool:canMakePayments]);
