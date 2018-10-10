@@ -43,7 +43,7 @@
         @"localizedDescription": product.localizedDescription ? product.localizedDescription : [NSNull null],
         @"localizedTitle": product.localizedTitle ? product.localizedTitle : [NSNull null],
         @"price": [product.price stringValue],
-        @"priceLocale": product.priceLocale ? product.priceLocale : [NSNull null],
+        @"priceLocale": product.priceLocale ? [product.priceLocale localeIdentifier] : [NSNull null],
         @"introductoryPrice": introductoryPrice ? introductoryPrice : [NSNull null],
         @"subscriptionPeriod": subscriptionPeriod ? subscriptionPeriod : [NSNull null],
         @"isDownloadable": [NSNumber numberWithBool:product.isDownloadable],
@@ -57,7 +57,7 @@
     if (discount == nil) return nil;
     return @{
              @"price" : [discount.price stringValue],
-             @"priceLocale" :discount.priceLocale ? discount.priceLocale : [NSNull null],
+             @"priceLocale" :discount.priceLocale ? [discount.priceLocale localeIdentifier] : [NSNull null],
              @"paymentMode": [self encodePaymentMode:discount.paymentMode],
              @"numberOfPeriods": [NSNumber numberWithInteger:discount.numberOfPeriods],
              @"subscriptionPeriod": [self encodeSubscriptionPeriod:discount.subscriptionPeriod],

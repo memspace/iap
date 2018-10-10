@@ -32,7 +32,7 @@ class StoreKit {
     } else if (call.method ==
         'SKPaymentQueue#failedToRestoreCompletedTransactions') {
       final data = Map<String, dynamic>.from(call.arguments);
-      final error = SKError.fromJson(data['error']);
+      final error = SKError.fromMap(data['error']);
       paymentQueue._observer
           .failedToRestoreCompletedTransactions(paymentQueue, error);
     } else if (call.method ==
@@ -44,8 +44,8 @@ class StoreKit {
       paymentQueue._observer.didUpdateDownloads(paymentQueue, downloads);
     } else if (call.method == 'SKPaymentQueue#shouldAddStorePayment') {
       final data = Map<String, dynamic>.from(call.arguments);
-      final payment = SKPayment.fromJson(data['payment']);
-      final product = SKProduct.fromJson(data['product']);
+      final payment = SKPayment.fromMap(data['payment']);
+      final product = SKProduct.fromMap(data['product']);
       return paymentQueue._observer
           .shouldAddStorePayment(paymentQueue, payment, product);
     } else {
@@ -55,14 +55,12 @@ class StoreKit {
 
   List<SKPaymentTransaction> _decodeTransactions(List data) {
     return data
-        .map((item) => SKPaymentTransaction.fromJson(item))
+        .map((item) => SKPaymentTransaction.fromMap(item))
         .toList(growable: false);
   }
 
   List<SKDownload> _decodeDownloads(List data) {
-    return data
-        .map((item) => SKDownload.fromJson(item))
-        .toList(growable: false);
+    return data.map((item) => SKDownload.fromMap(item)).toList(growable: false);
   }
 
   /// Retrieves localized information from the App Store about a specified
@@ -72,11 +70,10 @@ class StoreKit {
   /// the user without having to maintain that list of product information itself.
   Future<SKProductsResponse> products(List<String> productIdentifiers) async {
     assert(productIdentifiers != null && productIdentifiers.isNotEmpty);
-    final Map<String, dynamic> data =
-        await _channel.invokeMethod('StoreKit#products', {
+    final data = await _channel.invokeMethod('StoreKit#products', {
       'productIdentifiers': productIdentifiers,
     });
-    return SKProductsResponse.fromJson(data);
+    return SKProductsResponse.fromMap(data);
   }
 
   SKPaymentQueue get paymentQueue => SKPaymentQueue.instance;
@@ -143,28 +140,25 @@ class SKProduct extends Diagnosticable {
     @required this.downloadContentLengths,
     @required this.downloadContentVersion,
     this.subscriptionGroupIdentifier,
-  }) : assert(productIdentifier != null &&
-            localizedDescription != null &&
-            localizedTitle != null &&
-            price != null &&
-            priceLocale != null &&
-            isDownloadable != null &&
-            downloadContentLengths != null &&
-            downloadContentVersion != null);
+  })  : assert(productIdentifier != null, 'Product identifier cannot be null'),
+        assert(price != null, 'Price cannot be null'),
+        assert(priceLocale != null, 'Price locale cannot be null'),
+        assert(isDownloadable != null);
 
-  factory SKProduct.fromJson(Map<String, dynamic> data) {
+  factory SKProduct.fromMap(Map<dynamic, dynamic> data) {
     final productIdentifier = data['productIdentifier'] as String;
     final localizedDescription = data['localizedDescription'] as String;
     final localizedTitle = data['localizedTitle'] as String;
     final price = data['price'] as String;
     final priceLocale = data['priceLocale'] as String;
     final introductoryPrice =
-        SKProductDiscount.fromJson(data['introductoryPrice']);
+        SKProductDiscount.fromMap(data['introductoryPrice']);
     final subscriptionPeriod =
-        SKProductSubscriptionPeriod.fromJson(data['subscriptionPeriod']);
+        SKProductSubscriptionPeriod.fromMap(data['subscriptionPeriod']);
     final isDownloadable = data['isDownloadable'] as bool;
-    final downloadContentLengths =
-        List<int>.from(data['downloadContentLengths']);
+    final downloadContentLengths = data['downloadContentLengths'] != null
+        ? List<int>.from(data['downloadContentLengths'])
+        : null;
     final downloadContentVersion = data['downloadContentVersion'] as String;
     final subscriptionGroupIdentifier =
         data['subscriptionGroupIdentifier'] as String;
@@ -197,7 +191,8 @@ class SKProduct extends Diagnosticable {
         'introductoryPrice', introductoryPrice));
     properties.add(DiagnosticsProperty<SKProductSubscriptionPeriod>(
         'subscriptionPeriod', subscriptionPeriod));
-    properties.add(FlagProperty('isDownloadable', value: isDownloadable));
+    properties.add(FlagProperty('isDownloadable',
+        value: isDownloadable, ifTrue: 'yes', ifFalse: 'no'));
     properties.add(StringProperty(
         'subscriptionGroupIdentifier', subscriptionGroupIdentifier));
   }
@@ -226,17 +221,24 @@ class SKProductDiscount extends Diagnosticable {
   final int numberOfPeriods;
 
   /// Defines the period for the product discount.
+  ///
+  /// Represents the duration of a single subscription period. A period is
+  /// described as a number of units, where a unit can be any of [PeriodUnit]
+  /// values.
+  ///
+  /// To calculate the total amount of time that the discount price is
+  /// available to the user, multiply the subscriptionPeriod by
+  /// [numberOfPeriods].
   final SKProductSubscriptionPeriod subscriptionPeriod;
 
   SKProductDiscount._(this.price, this.priceLocale, this.paymentMode,
       this.numberOfPeriods, this.subscriptionPeriod)
-      : assert(price != null &&
-            priceLocale != null &&
-            paymentMode != null &&
-            numberOfPeriods != null &&
-            subscriptionPeriod != null);
+      : assert(price != null, 'Price cannot be null'),
+        assert(priceLocale != null, 'Price locale cannot be null'),
+        assert(paymentMode != null, 'Payment mode cannot be null'),
+        assert(numberOfPeriods != null, 'Number of periods cannot be null');
 
-  factory SKProductDiscount.fromJson(Map<String, dynamic> data) {
+  factory SKProductDiscount.fromMap(Map<dynamic, dynamic> data) {
     if (data == null) return null;
 
     final price = data['price'] as String;
@@ -244,7 +246,7 @@ class SKProductDiscount extends Diagnosticable {
     final paymentMode = _decodePaymentMode(data['paymentMode']);
     final numberOfPeriods = data['numberOfPeriods'] as int;
     final subscriptionPediod =
-        SKProductSubscriptionPeriod.fromJson(data['subscriptionPediod']);
+        SKProductSubscriptionPeriod.fromMap(data['subscriptionPediod']);
     return SKProductDiscount._(
         price, priceLocale, paymentMode, numberOfPeriods, subscriptionPediod);
   }
@@ -276,7 +278,7 @@ class SKProductSubscriptionPeriod extends Diagnosticable {
   SKProductSubscriptionPeriod._(this.numberOfUnits, this.unit)
       : assert(numberOfUnits != null && unit != null);
 
-  factory SKProductSubscriptionPeriod.fromJson(Map<String, dynamic> data) {
+  factory SKProductSubscriptionPeriod.fromMap(Map<dynamic, dynamic> data) {
     if (data == null) return null;
     final numberOfUnits = data['numberOfUnits'] as int;
     final unit = _decodePeriodUnit(data['unit']);
@@ -357,9 +359,12 @@ class SKProductsResponse {
 
   SKProductsResponse._(this.products, this.invalidProductIdentifiers);
 
-  SKProductsResponse.fromJson(Map<String, dynamic> data)
-      : products = data['products'],
-        invalidProductIdentifiers = data['invalidProductIdentifiers'];
+  SKProductsResponse.fromMap(Map<dynamic, dynamic> data)
+      : products = List.from(data['products'])
+            .map((item) => SKProduct.fromMap(item))
+            .toList(growable: false),
+        invalidProductIdentifiers =
+            List<String>.from(data['invalidProductIdentifiers']);
 }
 
 /// An object in the payment queue.
@@ -441,18 +446,17 @@ class SKPaymentTransaction {
     @required this.transactionState,
   });
 
-  factory SKPaymentTransaction.fromJson(Map<String, dynamic> data) {
+  factory SKPaymentTransaction.fromMap(Map<dynamic, dynamic> data) {
     if (data == null) return null;
-    final payment =
-        SKPayment.fromJson(Map<String, dynamic>.from(data['payment']));
+    final payment = SKPayment.fromMap(data['payment']);
     final transactionIdentifier = data['transactionIdentifier'] as String;
     final transctionDate = data['transactionDate'] != null
         ? DateTime.fromMicrosecondsSinceEpoch(data['transactionDate'])
         : null;
-    final original = SKPaymentTransaction.fromJson(data['original']);
-    final error = SKError.fromJson(data['error']);
+    final original = SKPaymentTransaction.fromMap(data['original']);
+    final error = SKError.fromMap(data['error']);
     final downloads = List.from(data['downloads'])
-        .map((item) => SKDownload.fromJson(item))
+        .map((item) => SKDownload.fromMap(item))
         .toList(growable: false);
     final transactionState = _decodeTransactionState(data['transactionState']);
     return SKPaymentTransaction._(
@@ -560,15 +564,15 @@ class SKDownload extends Diagnosticable {
     this.contentUrl,
   });
 
-  factory SKDownload.fromJson(Map<String, dynamic> data) {
+  factory SKDownload.fromMap(Map<dynamic, dynamic> data) {
     final contentIdentifier = data['contentIdentifier'] as String;
     final contentLength = data['contentLength'] as int;
     final contentVersion = data['contentVersion'] as String;
-    final transaction = SKPaymentTransaction.fromJson(data['transaction']);
+    final transaction = SKPaymentTransaction.fromMap(data['transaction']);
     final state = _decodeDownloadState(data['state']);
     final progress = data['progress'] as double;
     final timeRemaining = data['timeRemaining'] as int;
-    final error = SKError.fromJson(data['error']);
+    final error = SKError.fromMap(data['error']);
     final contentUrl =
         data['contentUrl'] != null ? Uri.parse(data['contentUrl']) : null;
     return SKDownload._(
@@ -654,7 +658,7 @@ class SKError {
 
   SKError._(this.code, this.localizedDescription);
 
-  factory SKError.fromJson(Map<String, dynamic> data) {
+  factory SKError.fromMap(Map<dynamic, dynamic> data) {
     if (data == null) return null;
     final errorCode = data['errorCode'] as int;
     final localizedDescription = data['localizedDescription'] as String;
@@ -713,7 +717,7 @@ class SKPayment {
     );
   }
 
-  factory SKPayment.fromJson(Map<String, dynamic> data) {
+  factory SKPayment.fromMap(Map<dynamic, dynamic> data) {
     final productIdentifier = data['productIdentifier'] as String;
     final quantity = data['quantity'] as int;
     final applicationUsername = data['applicationUsername'] as String;
@@ -727,7 +731,7 @@ class SKPayment {
     );
   }
 
-  Map<String, dynamic> toJson() {
+  Map<String, dynamic> toMap() {
     return <String, dynamic>{
       'productIdentifier': productIdentifier,
       'quantity': quantity,
@@ -806,9 +810,9 @@ class SKPaymentQueue {
   Future<List<SKPaymentTransaction>> get transactions async {
     final result =
         await StoreKit._channel.invokeMethod('SKPaymentQueue#transactions');
-    final data = List<Map<String, dynamic>>.from(result);
+    final data = List.from(result);
     return data
-        .map((tx) => SKPaymentTransaction.fromJson(tx))
+        .map((tx) => SKPaymentTransaction.fromMap(tx))
         .toList(growable: false);
   }
 
@@ -828,7 +832,7 @@ class SKPaymentQueue {
   /// to all transaction observers.
   Future<void> addPayment(SKPayment payment) async {
     final data = {
-      'payment': payment.toJson(),
+      'payment': payment.toMap(),
     };
     await StoreKit._channel.invokeMethod('SKPaymentQueue#addPayment', data);
   }
@@ -849,7 +853,7 @@ class SKPaymentQueue {
         transaction.transactionIdentifier != null,
         'Attempt to finalize transaction without identifier. '
         'This indicates that provided transaction has not been processed by the App Store yet '
-        'and is not in either "purchsed" or "restored" state. '
+        'and is not in either "purchased" or "restored" state. '
         'Only purchased transactions can be finalized.');
     final data = <String, dynamic>{
       'transactionIdentifier': transaction.transactionIdentifier,
