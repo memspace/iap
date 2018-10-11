@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -20,11 +21,20 @@ class StoreKit {
     _channel.setMethodCallHandler(_handleMethodCall);
   }
 
+  /// Cache of all unfinished transactions.
+  final _unfinishedTransactions = Map<int, SKPaymentTransaction>();
+
   Future<dynamic> _handleMethodCall(MethodCall call) async {
     if (call.method == 'SKPaymentQueue#didUpdateTransactions') {
-      final data = Map<String, dynamic>.from(call.arguments);
-      final transactions = _decodeTransactions(data['transactions']);
-      paymentQueue._observer.didUpdateTransactions(paymentQueue, transactions);
+      final input = Map<String, dynamic>.from(call.arguments);
+      final data = Map<int, dynamic>.from(input['transactions']);
+      final transactions = data.map((handle, item) {
+        final tx = SKPaymentTransaction.fromMap(item);
+        return MapEntry<int, SKPaymentTransaction>(handle, tx);
+      });
+      _unfinishedTransactions.addAll(transactions);
+      paymentQueue._observer.didUpdateTransactions(
+          paymentQueue, transactions.values.toList(growable: false));
     } else if (call.method == 'SKPaymentQueue#didRemoveTransactions') {
       final data = Map<String, dynamic>.from(call.arguments);
       final transactions = _decodeTransactions(data['transactions']);
@@ -76,6 +86,7 @@ class StoreKit {
     return SKProductsResponse.fromMap(data);
   }
 
+  /// Default payment queue for adding and processing payments.
   SKPaymentQueue get paymentQueue => SKPaymentQueue.instance;
 
   /// The file URL for the bundle’s App Store receipt.
@@ -88,6 +99,14 @@ class StoreKit {
         await _channel.invokeMethod('StoreKit#appStoreReceiptUrl');
     if (response == null) return null;
     return Uri.parse(response);
+  }
+
+  /// Request to refresh the receipt, which represents the user's
+  /// transactions with your app.
+  ///
+  /// Use this API to request a new receipt if the receipt is invalid or missing.
+  Future<void> refreshReceipt() async {
+    await _channel.invokeMethod('StoreKit#refreshReceipt');
   }
 }
 
@@ -338,6 +357,15 @@ enum SKPaymentTransactionState {
   deferred,
 }
 
+String _encodeTransactionState(SKPaymentTransactionState state) {
+  if (state == SKPaymentTransactionState.purchasing) return 'purchasing';
+  if (state == SKPaymentTransactionState.purchased) return 'purchased';
+  if (state == SKPaymentTransactionState.failed) return 'failed';
+  if (state == SKPaymentTransactionState.restored) return 'restored';
+  if (state == SKPaymentTransactionState.deferred) return 'deferred';
+  throw new StateError('Unknown transaction state $state.');
+}
+
 SKPaymentTransactionState _decodeTransactionState(String value) {
   if (value == 'purchasing') return SKPaymentTransactionState.purchasing;
   if (value == 'purchased') return SKPaymentTransactionState.purchased;
@@ -468,6 +496,21 @@ class SKPaymentTransaction {
       downloads: downloads,
       transactionState: transactionState,
     );
+  }
+
+  /// Returns a Map containing information about this transaction.
+  Map<String, dynamic> toMap({bool includeDownloads: true}) {
+    return <String, dynamic>{
+      'payment': payment.toMap(),
+      'transactionIdentifier': transactionIdentifier,
+      'transctionDate': transactionDate?.millisecondsSinceEpoch,
+      'original': original?.toMap(),
+      'error': error?.toMap(),
+      'downloads': (downloads != null && includeDownloads)
+          ? downloads.map((dl) => dl.toMap()).toList(growable: false)
+          : null,
+      'transactionState': _encodeTransactionState(transactionState),
+    };
   }
 }
 
@@ -600,6 +643,20 @@ class SKDownload extends Diagnosticable {
     throw new UnimplementedError();
   }
 
+  Map<String, dynamic> toMap() {
+    return <String, dynamic>{
+      'contentIdentifier': contentIdentifier,
+      'contentLength': contentLength,
+      'contentVersion': contentVersion,
+      'transaction': transaction.toMap(includeDownloads: false),
+      'state': _encodeDownloadState(state),
+      'progress': progress,
+      'timeRemaining': timeRemaining,
+      'error': error?.toMap(),
+      'contentUrl': contentUrl?.toString(),
+    };
+  }
+
   @override
   void debugFillProperties(DiagnosticPropertiesBuilder properties) {
     super.debugFillProperties(properties);
@@ -640,6 +697,16 @@ enum SKDownloadState {
   canceled,
 }
 
+String _encodeDownloadState(SKDownloadState state) {
+  if (state == SKDownloadState.waiting) return 'waiting';
+  if (state == SKDownloadState.active) return 'active';
+  if (state == SKDownloadState.paused) return 'paused';
+  if (state == SKDownloadState.finished) return 'finished';
+  if (state == SKDownloadState.failed) return 'failed';
+  if (state == SKDownloadState.canceled) return 'canceled';
+  throw new StateError('Unknown download state $state.');
+}
+
 SKDownloadState _decodeDownloadState(String value) {
   if (value == null) return null;
   if (value == 'waiting') return SKDownloadState.waiting;
@@ -663,6 +730,13 @@ class SKError {
     final errorCode = data['errorCode'] as int;
     final localizedDescription = data['localizedDescription'] as String;
     return SKError._(errorCode, localizedDescription);
+  }
+
+  Map<String, dynamic> toMap() {
+    return <String, dynamic>{
+      'code': code,
+      'localizedDescription': localizedDescription,
+    };
   }
 }
 
@@ -729,6 +803,23 @@ class SKPayment {
       applicationUsername: applicationUsername,
       simulatesAskToBuyInSandbox: simulatesAskToBuyInSandbox,
     );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! SKPayment) return false;
+    SKPayment typedOther = other;
+    return productIdentifier == typedOther.productIdentifier &&
+        quantity == typedOther.quantity &&
+        applicationUsername == typedOther.applicationUsername &&
+        simulatesAskToBuyInSandbox == typedOther.simulatesAskToBuyInSandbox;
+  }
+
+  @override
+  int get hashCode {
+    return hashValues(productIdentifier, quantity, applicationUsername,
+        simulatesAskToBuyInSandbox);
   }
 
   Map<String, dynamic> toMap() {
@@ -803,7 +894,7 @@ class SKPaymentQueue {
     StoreKit._channel.invokeMethod('SKPaymentQueue#removeTransactionObserver');
   }
 
-  /// Returns a list of pending transactions.
+  /// Returns a list of unfinished transactions.
   ///
   /// The value of this property is undefined when there are no observers
   /// attached to the payment queue.
@@ -851,15 +942,30 @@ class SKPaymentQueue {
     assert(transaction != null);
     assert(
         transaction.transactionIdentifier != null,
-        'Attempt to finalize transaction without identifier. '
+        'Attempt to finish transaction without identifier. '
         'This indicates that provided transaction has not been processed by the App Store yet '
         'and is not in either "purchased" or "restored" state. '
         'Only purchased transactions can be finalized.');
-    final data = <String, dynamic>{
-      'transactionIdentifier': transaction.transactionIdentifier,
-    };
-    await StoreKit._channel
-        .invokeMethod('SKPaymentQueue#finishTransaction', data);
+    final entry =
+        StoreKit.instance._unfinishedTransactions.entries.firstWhere((entry) {
+      return identical(entry.value, transaction);
+    }, orElse: () => null);
+    assert(
+        entry != null,
+        'Provided transaction cannot be finished. '
+        'It could have been already finished or it is not coming from '
+        'didUpdateTransactions() call of SKPaymentTransactionObserver.');
+
+    final data = <String, dynamic>{'handle': entry.key};
+    StoreKit.instance._unfinishedTransactions.remove(entry.key);
+    try {
+      await StoreKit._channel
+          .invokeMethod('SKPaymentQueue#finishTransaction', data);
+    } catch (error) {
+      // Add the entry back to unfinished list.
+      StoreKit.instance._unfinishedTransactions.addEntries([entry]);
+      rethrow;
+    }
   }
 
   /// Asks the payment queue to restore previously completed purchases.
@@ -935,7 +1041,7 @@ abstract class SKPaymentTransactionObserver {
   /// `transactionState` property. If `transactionState` is [SKPaymentTransactionState.purchased],
   /// payment was successfully received for the desired functionality. The application
   /// should make the functionality available to the user. If transactionState is
-  /// [SKPaymentTransactionState.failed], the application can read the transaction’s
+  /// [SKPaymentTransactionState.failed], the application can read the transaction��s
   /// error property to return a meaningful error to the user.
   ///
   /// Once a transaction is processed, it should be removed from the payment queue

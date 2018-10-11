@@ -207,7 +207,6 @@
     return nil;
 }
 
-
 -(NSString*)encodeDownloadState:(NSInteger) state {
     if (state == SKDownloadStateFailed) {
         return @"failed";
@@ -229,23 +228,47 @@
 @end
 
 @interface IapObserver : NSObject<SKPaymentTransactionObserver>
-    @property (atomic, retain) FlutterMethodChannel* channel;
-    @property (atomic, retain) NSArray<SKPaymentTransaction *> * lastUpdatedTransactions;
+
+@property (atomic, retain) FlutterMethodChannel* channel;
+
+- (BOOL)finishTransaction:(NSNumber*)handle;
+
 @end
 
 @implementation IapObserver{
     IapCodec* _codec;
+    NSMutableDictionary* _unfinishedTransactions;
+    int _nextTransactionHandle;
 }
 
 - (instancetype)init {
     self = [super init];
     _codec = [[IapCodec alloc] init];
+    _unfinishedTransactions = [[NSMutableDictionary alloc] init];
+    _nextTransactionHandle = 0;
     return self;
 }
 
+- (BOOL)finishTransaction:(NSNumber*)handle {
+    SKPaymentTransaction* tx = [_unfinishedTransactions objectForKey:handle];
+    if (tx == nil) {
+        return NO;
+    }
+    [[SKPaymentQueue defaultQueue] finishTransaction:tx];
+    [_unfinishedTransactions removeObjectForKey:handle];
+    return YES;
+}
+
 -(void)paymentQueue:(SKPaymentQueue *)queue updatedTransactions:(NSArray<SKPaymentTransaction *> *)transactions {
-    self.lastUpdatedTransactions = transactions;
-    NSDictionary* data = @{@"transactions":[_codec encodeTransactions:transactions]};
+    NSMutableDictionary* transactionMap = [[NSMutableDictionary alloc] init];
+    for (SKPaymentTransaction* tx in transactions) {
+        NSNumber* handle = [NSNumber numberWithInt:_nextTransactionHandle++];
+        [_unfinishedTransactions setObject:tx forKey:handle];
+        
+        NSDictionary * txData = [_codec encodeTransaction:tx];
+        [transactionMap setObject:txData forKey:handle];
+    }
+    NSDictionary* data = @{@"transactions":transactionMap};
     [self.channel invokeMethod:@"SKPaymentQueue#didUpdateTransactions" arguments:data];
 }
 
@@ -286,7 +309,8 @@
                             }
                             dispatch_semaphore_signal(semaphore);
                         }];
-    dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 5 * 1000000));
+    long timeoutMsecs = 5000;
+    dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, timeoutMsecs * 1000000));
     return [shouldAdd boolValue];
 }
 
@@ -302,6 +326,7 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
     IapCodec* _codec;
     IapObserver* _observer;
     NSMutableDictionary<NSValue*, FlutterResult>* _productRequests;
+    NSMutableDictionary<NSValue*, FlutterResult>* _refreshReceiptRequests;
     NSArray<SKProduct*>* _products;
 }
 
@@ -316,6 +341,7 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
     self = [super init];
     _codec = [[IapCodec alloc] init];
     _productRequests = [[NSMutableDictionary alloc] init];
+    _refreshReceiptRequests = [[NSMutableDictionary alloc] init];
     _products = [[NSArray alloc] init];
     return self;
 }
@@ -324,6 +350,8 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
     if ([@"StoreKit#products" isEqualToString:call.method]) {
         NSArray<NSString*>* ids = (NSArray<NSString*>*)call.arguments[@"productIdentifiers"];
         [self sendProductsRequest:ids result:result];
+    } else if ([@"StoreKit#refreshReceipt" isEqualToString:call.method]) {
+        [self refreshReceipt:result];
     } else if ([@"StoreKit#appStoreReceiptUrl" isEqualToString:call.method]) {
         NSURL *receiptURL = [[NSBundle mainBundle] appStoreReceiptURL];
         result(receiptURL.absoluteString);
@@ -361,8 +389,8 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
                     message:@"Must set transaction observer before attempting to finish transactions"
                     details:nil]);
         } else {
-            NSString* transactionId = call.arguments[@"transactionIdentifier"];
-            [self finishTransaction:transactionId result:result];
+            NSNumber* handle = call.arguments[@"handle"];
+            [self finishTransaction:handle result:result];
         }
     } else if ([@"SKPaymentQueue#restoreCompletedTransactions" isEqualToString:call.method]) {
         if (_observer == nil) {
@@ -399,6 +427,34 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
     result(payload);
 }
 
+- (void)refreshReceipt:(FlutterResult)result {
+    SKReceiptRefreshRequest* request = [[SKReceiptRefreshRequest alloc] init];
+    [request setDelegate:self];
+    [_refreshReceiptRequests setObject:result forKey:[NSValue valueWithNonretainedObject:request]];
+    [request start];
+}
+
+- (void)requestDidFinish:(SKRequest *)request {
+    if ([request isKindOfClass:[SKReceiptRefreshRequest class]]) {
+        NSValue* key = [NSValue valueWithNonretainedObject:request];
+        FlutterResult result = [_refreshReceiptRequests objectForKey:key];
+        if (result == nil) return;
+        [_refreshReceiptRequests removeObjectForKey:key];
+        result(nil);
+    }
+}
+
+- (void)request:(SKRequest *)request didFailWithError:(NSError *)error {
+    if ([request isKindOfClass:[SKReceiptRefreshRequest class]]) {
+        NSValue* key = [NSValue valueWithNonretainedObject:request];
+        FlutterResult result = [_refreshReceiptRequests objectForKey:key];
+        if (result == nil) return;
+        [_refreshReceiptRequests removeObjectForKey:key];
+        NSString* code = [NSString stringWithFormat: @"%ld", (long)error.code];
+        result([FlutterError errorWithCode:code message:error.localizedDescription details:nil]);
+    }
+}
+
 - (void)addPayment:(nonnull NSDictionary*)paymentData result:(FlutterResult)result {
     NSString* productId = [paymentData objectForKey:@"productIdentifier"];
     SKProduct* product = [self lookupProduct:productId];
@@ -428,20 +484,13 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
     return nil;
 }
 
-- (void)finishTransaction:(nonnull NSString*)transactionId result:(FlutterResult)result {
-    SKPaymentTransaction* tx = [self lookupTransaction:transactionId];
-    if (tx == nil) {
+- (void)finishTransaction:(nonnull NSNumber*)handle result:(FlutterResult)result {
+    BOOL finished = [_observer finishTransaction:handle];
+    if (finished == YES) {
+        result(nil);
+    } else {
         result([FlutterError errorWithCode:@"IAP_STORE_KIT_TRANSACTION_NOT_FOUND" message:@"No transaction found for provided identifier" details:nil]);
-        return;
     }
-    [[SKPaymentQueue defaultQueue] finishTransaction:tx];
-}
-
-- (SKPaymentTransaction*)lookupTransaction:(NSString*)transactionId {
-    for (SKPaymentTransaction* tx in _observer.lastUpdatedTransactions) {
-        if (tx.transactionIdentifier == transactionId) return tx;
-    }
-    return nil;
 }
 
 - (void)restoreTransactions:(nonnull NSString*)applicationUsername result:(FlutterResult)result {
