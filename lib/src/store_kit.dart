@@ -693,8 +693,8 @@ enum SKDownloadState {
   /// Indicates that an error occurred while the file was being downloaded.
   failed,
 
-  /// Indicates that your app canceled the download.
-  canceled,
+  /// Indicates that your app cancelled the download.
+  cancelled,
 }
 
 String _encodeDownloadState(SKDownloadState state) {
@@ -703,7 +703,7 @@ String _encodeDownloadState(SKDownloadState state) {
   if (state == SKDownloadState.paused) return 'paused';
   if (state == SKDownloadState.finished) return 'finished';
   if (state == SKDownloadState.failed) return 'failed';
-  if (state == SKDownloadState.canceled) return 'canceled';
+  if (state == SKDownloadState.cancelled) return 'cancelled';
   throw new StateError('Unknown download state $state.');
 }
 
@@ -714,7 +714,7 @@ SKDownloadState _decodeDownloadState(String value) {
   if (value == 'paused') return SKDownloadState.paused;
   if (value == 'finished') return SKDownloadState.finished;
   if (value == 'failed') return SKDownloadState.failed;
-  if (value == 'canceled') return SKDownloadState.canceled;
+  if (value == 'cancelled') return SKDownloadState.cancelled;
   throw new StateError('Unknown download state "$value".');
 }
 

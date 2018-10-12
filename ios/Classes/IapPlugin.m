@@ -219,7 +219,7 @@
     } else if (state == SKDownloadStateFinished) {
         return @"finished";
     } else if (state == SKDownloadStateCancelled) {
-        return @"canceled";
+        return @"cancelled";
     }
     [NSException raise:@"Invalid download state" format:@"State %ld is invalid", state];
     return nil;
@@ -459,7 +459,11 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
     NSString* productId = [paymentData objectForKey:@"productIdentifier"];
     SKProduct* product = [self lookupProduct:productId];
     if (product == nil) {
-        result([FlutterError errorWithCode:@"IAP_STORE_KIT_NO_PRODUCT" message:@"Must fetch products before adding payments" details:nil]);
+        NSDictionary* details = @{
+            @"productId": productId ? productId : [NSNull null],
+            @"productsLength": [NSNumber numberWithInteger:_products.count],
+        };
+        result([FlutterError errorWithCode:@"IAP_STORE_KIT_NO_PRODUCT" message:@"Must fetch products before adding payments" details:details]);
         return;
     }
     SKMutablePayment* payment = [SKMutablePayment paymentWithProduct: product];
@@ -479,7 +483,7 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
 
 - (SKProduct*)lookupProduct:(NSString*)productId {
     for (SKProduct* product in _products) {
-        if (product.productIdentifier == productId) return product;
+        if ([productId isEqualToString:product.productIdentifier]) return product;
     }
     return nil;
 }
