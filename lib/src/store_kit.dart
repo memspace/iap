@@ -448,7 +448,11 @@ class SKPaymentTransaction {
   /// [SKPaymentTransactionState.failed]. Your application can read the error
   /// property to determine why the transaction failed.
   ///
-  /// For a list of error constants, see SKErrorDomain in StoreKit Constants.
+  /// Error codes could belong to SKErrorDomain or NSURLErrorDomain.
+  ///
+  /// See also:
+  ///
+  ///   - Handling errors: https://developer.apple.com/documentation/storekit/handling_errors?language=objc
   final SKError error;
 
   /// An array of download objects representing the downloadable content
@@ -720,16 +724,16 @@ SKDownloadState _decodeDownloadState(String value) {
 
 /// StoreKit error.
 class SKError {
-  final int code;
+  final String code;
   final String localizedDescription;
 
   SKError._(this.code, this.localizedDescription);
 
   factory SKError.fromMap(Map<dynamic, dynamic> data) {
     if (data == null) return null;
-    final errorCode = data['errorCode'] as int;
+    final code = data['code'] as String;
     final localizedDescription = data['localizedDescription'] as String;
-    return SKError._(errorCode, localizedDescription);
+    return SKError._(code, localizedDescription);
   }
 
   Map<String, dynamic> toMap() {
@@ -737,6 +741,11 @@ class SKError {
       'code': code,
       'localizedDescription': localizedDescription,
     };
+  }
+
+  @override
+  String toString() {
+    return 'SKError#$code($localizedDescription)';
   }
 }
 

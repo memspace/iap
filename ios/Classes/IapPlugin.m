@@ -98,11 +98,49 @@
     return nil;
 }
 
-- (NSDictionary*)encodeError:(NSError*) error {
+- (NSDictionary *)encodeError:(NSError *)error {
+    NSString *code;
+    if ([error.domain isEqualToString:SKErrorDomain]) {
+        code = [self encodeSKErrorCode:error.code];
+    } else if ([error.domain isEqualToString:NSURLErrorDomain]) {
+        code = [self encodeNSUrlErrorCode:error.code];
+    }
+    if (code == nil) {
+        code = [NSString stringWithFormat:@"%@#%@", error.domain, [@(error.code) stringValue]];
+    }
     return @{
-             @"code": [NSNumber numberWithInteger:error.code],
-             @"localizedDescription": error.localizedDescription ? error.localizedDescription: [NSNull null],
-             };
+        @"code": code ? code : [NSNull null],
+        @"localizedDescription": error.localizedDescription ? error.localizedDescription: [NSNull null],
+    };
+}
+
+- (NSString *)encodeSKErrorCode:(NSInteger)code {
+    if (code == SKErrorStoreProductNotAvailable) return @"SKErrorStoreProductNotAvailable";
+    if (@available(iOS 9.3, *)) {
+        if (code == SKErrorUnknown) return @"SKErrorUnknown";
+        if (code == SKErrorClientInvalid) return @"SKErrorClientInvalid";
+        if (code == SKErrorPaymentCancelled) return @"SKErrorPaymentCancelled";
+        if (code == SKErrorPaymentInvalid) return @"SKErrorPaymentInvalid";
+        if (code == SKErrorPaymentNotAllowed) return @"SKErrorPaymentNotAllowed";
+        if (code == SKErrorCloudServicePermissionDenied) return @"SKErrorCloudServicePermissionDenied";
+        if (code == SKErrorCloudServiceNetworkConnectionFailed) return @"SKErrorCloudServiceNetworkConnectionFailed";
+    }
+    if (@available(iOS 10.3, *)) {
+        if (code == SKErrorCloudServiceRevoked) return @"SKErrorCloudServiceRevoked";
+    }
+    return nil;
+}
+
+- (NSString *)encodeNSUrlErrorCode:(NSInteger)code {
+    // Common error codes list taken from: https://developer.apple.com/documentation/storekit/handling_errors?language=objc
+    if (code == NSURLErrorTimedOut) return @"NSURLErrorTimedOut";
+    if (code == NSURLErrorCannotFindHost) return @"NSURLErrorCannotFindHost";
+    if (code == NSURLErrorCannotConnectToHost) return @"NSURLErrorCannotConnectToHost";
+    if (code == NSURLErrorNetworkConnectionLost) return @"NSURLErrorNetworkConnectionLost";
+    if (code == NSURLErrorNotConnectedToInternet) return @"NSURLErrorNotConnectedToInternet";
+    if (code == NSURLErrorUserCancelledAuthentication) return @"NSURLErrorUserCancelledAuthentication";
+    if (code == NSURLErrorSecureConnectionFailed) return @"NSURLErrorSecureConnectionFailed";
+    return nil;
 }
 
 - (NSArray<NSDictionary*>*)encodeDownloads:(NSArray<SKDownload*>*)downloads {
@@ -162,20 +200,17 @@
     NSDictionary* original = [self encodeTransaction:transaction.originalTransaction];
     NSDictionary* error;
     if (transaction.error != nil) {
-        error = @{
-                  @"code": [NSNumber numberWithInteger:transaction.error.code],
-                  @"localizedDescription": transaction.error.localizedDescription ? transaction.error.localizedDescription: [NSNull null],
-                  };
+        error = [self encodeError:transaction.error];
     }
     return @{
-             @"payment" : [self encodePayment:transaction.payment],
-             @"transactionIdentifier" :transaction.transactionIdentifier ? transaction.transactionIdentifier : [NSNull null],
-             @"transactionDate": transactionDateMSec ? transactionDateMSec : [NSNull null],
-             @"original": original ? original : [NSNull null],
-             @"error": error ? error : [NSNull null],
-             @"downloads": [[NSArray alloc] init], // TODO
-             @"transactionState": [self encodeTransactionState:transaction.transactionState],
-             };
+        @"payment" : [self encodePayment:transaction.payment],
+        @"transactionIdentifier" :transaction.transactionIdentifier ? transaction.transactionIdentifier : [NSNull null],
+        @"transactionDate": transactionDateMSec ? transactionDateMSec : [NSNull null],
+        @"original": original ? original : [NSNull null],
+        @"error": error ? error : [NSNull null],
+        @"downloads": [[NSArray alloc] init], // TODO
+        @"transactionState": [self encodeTransactionState:transaction.transactionState],
+    };
 }
 
 -(NSDictionary*)encodePayment:(SKPayment*) payment {
@@ -184,11 +219,11 @@
         simulatesAskToBuyInSandbox = [NSNumber numberWithBool:payment.simulatesAskToBuyInSandbox];
     }
     return @{
-             @"productIdentifier": payment.productIdentifier,
-             @"quantity": [NSNumber numberWithInteger:payment.quantity],
-             @"applicationUsername": payment.applicationUsername ? payment.applicationUsername : [NSNull null],
-             @"simulatesAskToBuyInSandbox": simulatesAskToBuyInSandbox,
-             };
+         @"productIdentifier": payment.productIdentifier,
+         @"quantity": [NSNumber numberWithInteger:payment.quantity],
+         @"applicationUsername": payment.applicationUsername ? payment.applicationUsername : [NSNull null],
+         @"simulatesAskToBuyInSandbox": simulatesAskToBuyInSandbox ? simulatesAskToBuyInSandbox : [NSNull null],
+     };
 }
 
 -(NSString*)encodeTransactionState:(NSInteger) state {
@@ -297,13 +332,13 @@
         @"payment": [_codec encodePayment:payment],
         @"product": [_codec encodeProduct:product],
     };
-    __block NSNumber* shouldAdd = [NSNumber numberWithBool:NO];
+    __block NSNumber* shouldAdd = [NSNumber numberWithBool:YES];
     
     dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
     [self.channel invokeMethod:@"SKPaymentQueue#shouldAddStorePayment" arguments:data
                         result: ^(id value) {
                             if ([value isKindOfClass:[FlutterError class]]) {
-                                shouldAdd = [NSNumber numberWithBool:NO];
+                                shouldAdd = [NSNumber numberWithBool:YES];
                             } else {
                                 shouldAdd = value;
                             }
@@ -375,7 +410,7 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
     } else if ([@"SKPaymentQueue#addPayment" isEqualToString:call.method]) {
         if (_observer == nil) {
             result([FlutterError
-                    errorWithCode:@"IAP_STORE_KIT_OBSERVER_MISSING"
+                    errorWithCode:@"IAPStoreKitObserverMissing"
                     message:@"Must set transaction observer before adding payments to the queue"
                     details:nil]);
         } else {
@@ -385,7 +420,7 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
     } else if ([@"SKPaymentQueue#finishTransaction" isEqualToString:call.method]) {
         if (_observer == nil) {
             result([FlutterError
-                    errorWithCode:@"IAP_STORE_KIT_OBSERVER_MISSING"
+                    errorWithCode:@"IAPStoreKitObserverMissing"
                     message:@"Must set transaction observer before attempting to finish transactions"
                     details:nil]);
         } else {
@@ -395,7 +430,7 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
     } else if ([@"SKPaymentQueue#restoreCompletedTransactions" isEqualToString:call.method]) {
         if (_observer == nil) {
             result([FlutterError
-                    errorWithCode:@"IAP_STORE_KIT_OBSERVER_MISSING"
+                    errorWithCode:@"IAPStoreKitObserverMissing"
                     message:@"Must set transaction observer before attempting to restore transactions"
                     details:nil]);
         } else {
@@ -450,7 +485,8 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
         FlutterResult result = [_refreshReceiptRequests objectForKey:key];
         if (result == nil) return;
         [_refreshReceiptRequests removeObjectForKey:key];
-        NSString* code = [NSString stringWithFormat: @"%ld", (long)error.code];
+        NSDictionary * errorData = [_codec encodeError:error];
+        NSString* code = [errorData objectForKey:@"code"];
         result([FlutterError errorWithCode:code message:error.localizedDescription details:nil]);
     }
 }
@@ -463,7 +499,7 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
             @"productId": productId ? productId : [NSNull null],
             @"productsLength": [NSNumber numberWithInteger:_products.count],
         };
-        result([FlutterError errorWithCode:@"IAP_STORE_KIT_NO_PRODUCT" message:@"Must fetch products before adding payments" details:details]);
+        result([FlutterError errorWithCode:@"IAPStoreKitProductMissing" message:@"Must fetch products before adding payments" details:details]);
         return;
     }
     SKMutablePayment* payment = [SKMutablePayment paymentWithProduct: product];
@@ -493,7 +529,7 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
     if (finished == YES) {
         result(nil);
     } else {
-        result([FlutterError errorWithCode:@"IAP_STORE_KIT_TRANSACTION_NOT_FOUND" message:@"No transaction found for provided identifier" details:nil]);
+        result([FlutterError errorWithCode:@"IAPStoreKitTransactionMissing" message:@"No transaction found for provided identifier" details:nil]);
     }
 }
 
