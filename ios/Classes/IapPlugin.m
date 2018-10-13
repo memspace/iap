@@ -328,25 +328,24 @@
 
 - (BOOL)paymentQueue:(SKPaymentQueue *)queue shouldAddStorePayment:(SKPayment *)payment
           forProduct:(SKProduct *)product {
+    // There is no way to be sure here that observer is already set on Flutter side at this point.
+    // This is because we register native observer as early as possible without waiting
+    // for Flutter, otherwise we may miss events here (for instance, looks like Firebase Analytics
+    // registers its own observer to track conversions; if our observer is registered too late
+    // some transactions may have been consumed by the Analytics observer).
+    // Therefore we have to step away from the native API contract and model this interaction as
+    // a one-way notification:
+    // 1. Always return `NO` here so that store payments do not automatically proceed
+    // 2. Send store payment to Flutter and let it handle whenever observer is registered on that side
+    //    User would still be able to "resume" purchase by simply adding this payment to the
+    //    payment queue.
+
     NSDictionary* data = @{
         @"payment": [_codec encodePayment:payment],
         @"product": [_codec encodeProduct:product],
     };
-    __block NSNumber* shouldAdd = [NSNumber numberWithBool:YES];
-    
-    dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
-    [self.channel invokeMethod:@"SKPaymentQueue#shouldAddStorePayment" arguments:data
-                        result: ^(id value) {
-                            if ([value isKindOfClass:[FlutterError class]]) {
-                                shouldAdd = [NSNumber numberWithBool:YES];
-                            } else {
-                                shouldAdd = value;
-                            }
-                            dispatch_semaphore_signal(semaphore);
-                        }];
-    long timeoutMsecs = 5000;
-    dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, timeoutMsecs * 1000000));
-    return [shouldAdd boolValue];
+    [self.channel invokeMethod:@"SKPaymentQueue#didReceiveStorePayment" arguments:data];
+    return NO;
 }
 
 @end
@@ -355,11 +354,11 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
 
 @interface IapPlugin()
     @property(nonatomic, retain) FlutterMethodChannel *channel;
+    @property(nonatomic, retain) IapObserver *observer;
 @end
 
 @implementation IapPlugin {
     IapCodec* _codec;
-    IapObserver* _observer;
     NSMutableDictionary<NSValue*, FlutterResult>* _productRequests;
     NSMutableDictionary<NSValue*, FlutterResult>* _refreshReceiptRequests;
     NSArray<SKProduct*>* _products;
@@ -368,8 +367,13 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
 + (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {
     FlutterMethodChannel* channel = [FlutterMethodChannel methodChannelWithName:CHANNEL_NAME binaryMessenger:[registrar messenger]];
     IapPlugin* instance = [[IapPlugin alloc] init];
+    IapObserver* observer = [[IapObserver alloc] init];
     instance.channel = channel;
+    observer.channel = channel;
+    instance.observer = observer;
+
     [registrar addMethodCallDelegate:instance channel:channel];
+    [[SKPaymentQueue defaultQueue] addTransactionObserver:observer];
 }
 
 - (instancetype)init {
@@ -393,50 +397,15 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
     } else if ([@"SKPaymentQueue#canMakePayments" isEqualToString:call.method]) {
         BOOL canMakePayments = [SKPaymentQueue canMakePayments];
         result([NSNumber numberWithBool:canMakePayments]);
-    } else if ([@"SKPaymentQueue#setTransactionObserver" isEqualToString:call.method]) {
-        if (_observer == nil) {
-            IapObserver* observer = [[IapObserver alloc] init];
-            observer.channel = self.channel;
-            _observer = observer;
-            [[SKPaymentQueue defaultQueue] addTransactionObserver:observer];
-        }
-        result(nil);
-    } else if ([@"SKPaymentQueue#removeTransactionObserver" isEqualToString:call.method]) {
-        if (_observer != nil) {
-            [[SKPaymentQueue defaultQueue] removeTransactionObserver:_observer];
-            _observer = nil;
-        }
-        result(nil);
     } else if ([@"SKPaymentQueue#addPayment" isEqualToString:call.method]) {
-        if (_observer == nil) {
-            result([FlutterError
-                    errorWithCode:@"IAPStoreKitObserverMissing"
-                    message:@"Must set transaction observer before adding payments to the queue"
-                    details:nil]);
-        } else {
-            NSDictionary* data = (NSDictionary*)call.arguments[@"payment"];
-            [self addPayment:data result:result];
-        }
+        NSDictionary* data = (NSDictionary*)call.arguments[@"payment"];
+        [self addPayment:data result:result];
     } else if ([@"SKPaymentQueue#finishTransaction" isEqualToString:call.method]) {
-        if (_observer == nil) {
-            result([FlutterError
-                    errorWithCode:@"IAPStoreKitObserverMissing"
-                    message:@"Must set transaction observer before attempting to finish transactions"
-                    details:nil]);
-        } else {
-            NSNumber* handle = call.arguments[@"handle"];
-            [self finishTransaction:handle result:result];
-        }
+        NSNumber* handle = call.arguments[@"handle"];
+        [self finishTransaction:handle result:result];
     } else if ([@"SKPaymentQueue#restoreCompletedTransactions" isEqualToString:call.method]) {
-        if (_observer == nil) {
-            result([FlutterError
-                    errorWithCode:@"IAPStoreKitObserverMissing"
-                    message:@"Must set transaction observer before attempting to restore transactions"
-                    details:nil]);
-        } else {
-            NSString* applicationUsername = call.arguments[@"applicationUsername"];
-            [self restoreTransactions:applicationUsername result:result];
-        }
+        NSString* applicationUsername = call.arguments[@"applicationUsername"];
+        [self restoreTransactions:applicationUsername result:result];
     } else {
         result(FlutterMethodNotImplemented);
     }
@@ -525,7 +494,7 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
 }
 
 - (void)finishTransaction:(nonnull NSNumber*)handle result:(FlutterResult)result {
-    BOOL finished = [_observer finishTransaction:handle];
+    BOOL finished = [self.observer finishTransaction:handle];
     if (finished == YES) {
         result(nil);
     } else {
