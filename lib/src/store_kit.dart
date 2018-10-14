@@ -52,7 +52,7 @@ class StoreKit {
       final data = Map<String, dynamic>.from(call.arguments);
       final payment = SKPayment.fromMap(data['payment']);
       final product = SKProduct.fromMap(data['product']);
-      return paymentQueue._enqueueStorePayment(payment, product);
+      paymentQueue._enqueueStorePayment(payment, product);
     } else {
       throw new UnimplementedError('Method "${call.method}" not implemented');
     }
