@@ -267,6 +267,10 @@
 @property (atomic, retain) SKProduct *product;
 @end
 
+@implementation IapStorePayment
+
+@end
+
 @interface IapObserver : NSObject<SKPaymentTransactionObserver>
 
 @property (atomic, retain) FlutterMethodChannel *channel;
