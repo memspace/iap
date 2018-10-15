@@ -6,19 +6,13 @@ import 'store_kit_data.dart';
 
 /// Support for in-app purchases and interactions with the App Store.
 class StoreKit {
-  static const MethodChannel _channel =
+  static const MethodChannel channel =
       const MethodChannel('flutter.memspace.io/iap');
 
-  static StoreKit _instance;
-
-  static StoreKit get instance {
-    if (_instance != null) return _instance;
-    _instance = StoreKit._();
-    return _instance;
-  }
+  static final StoreKit instance = StoreKit._();
 
   StoreKit._() {
-    _channel.setMethodCallHandler(_handleMethodCall);
+    channel.setMethodCallHandler(_handleMethodCall);
   }
 
   Future<dynamic> _handleMethodCall(MethodCall call) async {
@@ -30,11 +24,11 @@ class StoreKit {
         final tx = SKPaymentTransaction.fromMap(item);
         return MapEntry<int, SKPaymentTransaction>(handle, tx);
       });
-      paymentQueue._enqueueUpdatedTransactions(transactions);
+      paymentQueue._handleUpdatedTransactions(transactions);
     } else if (call.method == 'SKPaymentQueue#didRemoveTransactions') {
       final data = Map<String, dynamic>.from(call.arguments);
       final transactions = _decodeTransactions(data['transactions']);
-      paymentQueue._enqueueRemovedTransactions(transactions);
+      paymentQueue._handleRemovedTransactions(transactions);
     } else if (call.method ==
         'SKPaymentQueue#failedToRestoreCompletedTransactions') {
       final data = Map<String, dynamic>.from(call.arguments);
@@ -75,7 +69,7 @@ class StoreKit {
   /// the user without having to maintain that list of product information itself.
   Future<SKProductsResponse> products(List<String> productIdentifiers) async {
     assert(productIdentifiers != null && productIdentifiers.isNotEmpty);
-    final data = await _channel.invokeMethod('StoreKit#products', {
+    final data = await channel.invokeMethod('StoreKit#products', {
       'productIdentifiers': productIdentifiers,
     });
     return SKProductsResponse.fromMap(data);
@@ -84,14 +78,14 @@ class StoreKit {
   /// Default payment queue for adding and processing payments.
   SKPaymentQueue get paymentQueue => SKPaymentQueue.instance;
 
-  /// The file URL for the bundle’s App Store receipt.
+  /// The file URL for the bundle's App Store receipt.
   ///
   /// For an application purchased from the App Store, use this property to locate
   /// the receipt. This property makes no guarantee about whether there is a
   /// file at the URL — only that if a receipt is present, that is its location.
   Future<Uri> get appStoreReceiptUrl async {
     final String response =
-        await _channel.invokeMethod('StoreKit#appStoreReceiptUrl');
+        await channel.invokeMethod('StoreKit#appStoreReceiptUrl');
     if (response == null) return null;
     return Uri.parse(response);
   }
@@ -101,15 +95,8 @@ class StoreKit {
   ///
   /// Use this API to request a new receipt if the receipt is invalid or missing.
   Future<void> refreshReceipt() async {
-    await _channel.invokeMethod('StoreKit#refreshReceipt');
+    await channel.invokeMethod('StoreKit#refreshReceipt');
   }
-}
-
-class _StorePayment {
-  final SKPayment payment;
-  final SKProduct product;
-
-  _StorePayment(this.payment, this.product);
 }
 
 /// A queue of payment transactions to be processed by the App Store.
@@ -126,62 +113,29 @@ class SKPaymentQueue {
     return _instance;
   }
 
-  /// Cache of all udpated _and_ unfinished transactions.
+  /// Cache of all updated _and_ unfinished transactions.
   final _updatedTransactions = Map<int, SKPaymentTransaction>();
-  final _removedTransactions = List<SKPaymentTransaction>();
-  final _receivedStorePayments = List<_StorePayment>();
 
   /// Transaction observer.
   SKPaymentTransactionObserver _observer;
 
   SKPaymentQueue._();
 
-  /// Adds updated [transactions] to this queue.
-  ///
-  /// If there is an observer registered with this queue then it
-  /// gets notified immediately, otherwise it will be notified upon
-  /// registration.
-  ///
-  /// See [setTransactionObserver] for details.
-  void _enqueueUpdatedTransactions(
-      Map<int, SKPaymentTransaction> transactions) {
-    print('IAP: Queueing updated transactions');
+  /// Sends updated [transactions] to registered observer.
+  void _handleUpdatedTransactions(Map<int, SKPaymentTransaction> transactions) {
     _updatedTransactions.addAll(transactions);
-    if (_observer != null) {
-      print('IAP: Notifying observer');
-      _observer.didUpdateTransactions(
-          this, transactions.values.toList(growable: false));
-    }
+    _observer.didUpdateTransactions(
+        this, transactions.values.toList(growable: false));
   }
 
-  /// Adds removed [transactions] to this queue.
-  ///
-  /// If there is an observer registered with this queue then it
-  /// gets notified immediately, otherwise it will be notified upon
-  /// registration.
-  ///
-  /// See [setTransactionObserver] for details.
-  void _enqueueRemovedTransactions(List<SKPaymentTransaction> transactions) {
-    if (_observer != null) {
-      _observer.didRemoveTransactions(this, transactions);
-    } else {
-      _removedTransactions.addAll(transactions);
-    }
+  /// Sends removed [transactions] to registered observer.
+  void _handleRemovedTransactions(List<SKPaymentTransaction> transactions) {
+    _observer.didRemoveTransactions(this, transactions);
   }
 
-  /// Adds store payment to this queue.
-  ///
-  /// If there is an observer registered with this queue then it
-  /// gets notified immediately, otherwise it will be notified upon
-  /// registration.
-  ///
-  /// See [setTransactionObserver] for details.
+  /// Sends store payment to registered observer.
   void _enqueueStorePayment(SKPayment payment, SKProduct product) {
-    if (_observer != null) {
-      _observer.didReceiveStorePayment(this, payment, product);
-    } else {
-      _receivedStorePayments.add(_StorePayment(payment, product));
-    }
+    _observer.didReceiveStorePayment(this, payment, product);
   }
 
   /// Indicates whether the user is allowed to make payments.
@@ -190,14 +144,14 @@ class SKPaymentQueue {
   /// authorize payment.
   ///
   /// An iPhone can be restricted from accessing the Apple App Store.
-  /// For example, parents can restrict their children’s ability to purchase
+  /// For example, parents can restrict their children's ability to purchase
   /// additional content. Your application should confirm that the user is
   /// allowed to authorize payments before adding a payment to the queue.
   /// Your application may also want to alter its behavior or appearance when
   /// the user is not allowed to authorize payments.
   Future<bool> canMakePayments() async {
     final bool value =
-        await StoreKit._channel.invokeMethod('SKPaymentQueue#canMakePayments');
+        await StoreKit.channel.invokeMethod('SKPaymentQueue#canMakePayments');
     return value;
   }
 
@@ -210,43 +164,26 @@ class SKPaymentQueue {
   /// those transactions are not lost. The next time the application launches,
   /// the payment queue will resume processing the transactions. Your application
   /// should always expect to be notified of completed transactions.
-  void setTransactionObserver(SKPaymentTransactionObserver observer) {
+  Future<void> setTransactionObserver(
+      SKPaymentTransactionObserver observer) async {
+    assert(observer != null, 'Observer cannot be null.');
     _observer = observer;
-    print('IAP: observer is set');
-    if (_updatedTransactions.isNotEmpty) {
-      print('IAP: found unhandled transactions, notifying.');
-      _observer.didUpdateTransactions(
-          this, _updatedTransactions.values.toList(growable: false));
-    }
-    if (_removedTransactions.isNotEmpty) {
-      _observer.didRemoveTransactions(
-          this, _removedTransactions.toList(growable: false));
-      _removedTransactions.clear();
-    }
-    if (_receivedStorePayments.isNotEmpty) {
-      while (_receivedStorePayments.isNotEmpty) {
-        final item = _receivedStorePayments.removeLast();
-        _observer.didReceiveStorePayment(this, item.payment, item.product);
-      }
-    }
+    // Notify native side that we are ready to receive events.
+    await StoreKit.channel.invokeMethod('SKPaymentQueue#enableObserver');
   }
 
   /// Removes previously set observer from this payment queue.
-  void removeTransactionObserver() {
-    _observer = null;
-  }
-
-  /// Returns a list of unfinished transactions.
   ///
-  /// The value of this property is undefined when there are no observers
-  /// attached to the payment queue.
-  Future<List<SKPaymentTransaction>> get transactions async {
-    final result =
-        await StoreKit._channel.invokeMethod('SKPaymentQueue#transactions');
-    final data = List.from(result);
-    return data
-        .map((tx) => SKPaymentTransaction.fromMap(tx))
-        .toList(growable: false);
+  /// Note that your application should always have a transaction observer
+  /// set on this payment queue. Use this method if you need to dispose
+  /// current state in you application and initialize a fresh observer
+  /// right after.
+  ///
+  /// This method essentially pauses delivery of queue events until next
+  /// call to [setTransactionObserver].
+  Future<void> removeTransactionObserver() async {
+    _observer = null;
+    await StoreKit.channel.invokeMethod('SKPaymentQueue#disableObserver');
   }
 
   /// Adds a payment request to the queue.
@@ -267,7 +204,7 @@ class SKPaymentQueue {
     final data = {
       'payment': payment.toMap(),
     };
-    await StoreKit._channel.invokeMethod('SKPaymentQueue#addPayment', data);
+    await StoreKit.channel.invokeMethod('SKPaymentQueue#addPayment', data);
   }
 
   /// Completes a pending transaction.
@@ -303,9 +240,9 @@ class SKPaymentQueue {
     _updatedTransactions.remove(entry.key);
 
     try {
-      await StoreKit._channel
+      await StoreKit.channel
           .invokeMethod('SKPaymentQueue#finishTransaction', data);
-    } catch (error) {
+    } catch (_) {
       // Add the entry back to unfinished list.
       _updatedTransactions.addEntries([entry]);
       rethrow;
@@ -344,7 +281,7 @@ class SKPaymentQueue {
   Future<void> restoreCompletedTransactions(
       {String applicationUsername}) async {
     final data = <String, dynamic>{'applicationUsername': applicationUsername};
-    await StoreKit._channel
+    await StoreKit.channel
         .invokeMethod('SKPaymentQueue#restoreCompletedTransactions', data);
   }
 
@@ -381,11 +318,11 @@ class SKPaymentQueue {
 abstract class SKPaymentTransactionObserver {
   /// Tells this observer that one or more transactions have been updated.
   ///
-  /// The application should process each transaction by examining the transaction’s
+  /// The application should process each transaction by examining the transaction's
   /// `transactionState` property. If `transactionState` is [SKPaymentTransactionState.purchased],
   /// payment was successfully received for the desired functionality. The application
   /// should make the functionality available to the user. If transactionState is
-  /// [SKPaymentTransactionState.failed], the application can read the transaction��s
+  /// [SKPaymentTransactionState.failed], the application can read the transaction's
   /// error property to return a meaningful error to the user.
   ///
   /// Once a transaction is processed, it should be removed from the payment queue

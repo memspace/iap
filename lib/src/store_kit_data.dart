@@ -666,22 +666,22 @@ class SKPayment {
   final String applicationUsername;
 
   /// Produces an "ask to buy" flow for this payment in the sandbox.
+  ///
+  /// Available since iOS 8.3.
   final bool simulatesAskToBuyInSandbox;
 
   SKPayment._({
     @required this.productIdentifier,
     @required this.quantity,
     this.applicationUsername,
-    @required this.simulatesAskToBuyInSandbox,
-  }) : assert(productIdentifier != null &&
-            quantity != null &&
-            simulatesAskToBuyInSandbox != null);
+    this.simulatesAskToBuyInSandbox,
+  }) : assert(productIdentifier != null && quantity != null);
 
   factory SKPayment.withProduct(
     SKProduct product, {
     int quantity: 1,
     String applicationUsername,
-    bool simulatesAskToBuyInSandbox: false,
+    bool simulatesAskToBuyInSandbox,
   }) {
     assert(product != null, 'Product cannot be null.');
     assert(quantity != null && quantity >= 1, 'Invalid quantity for payment.');
