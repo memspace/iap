@@ -36,7 +36,7 @@ Current version only implements iOS portion with Android side coming next.
 
 > Plugin currently implements all native APIs except for **downloads**.
 > If you are looking for this functionality consider submitting a pull request
-> or giving your :+1: [here](https://github.com/memspace/iap/issues/1).
+> or leaving your :+1: [here](https://github.com/memspace/iap/issues/1).
 
 Interacting with StoreKit in Flutter is almost 100% identical to the native ObjectiveC
 interface.
