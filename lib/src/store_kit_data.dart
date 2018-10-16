@@ -269,7 +269,7 @@ SKPaymentTransactionState _decodeTransactionState(String value) {
 }
 
 /// An App Store response to a request for information about a list of products.
-class SKProductsResponse {
+class SKProductsResponse extends Diagnosticable {
   /// A list of products, one product for each valid product identifier
   /// provided in the original request.
   final List<SKProduct> products;
@@ -286,6 +286,14 @@ class SKProductsResponse {
             .toList(growable: false),
         invalidProductIdentifiers =
             List<String>.from(data['invalidProductIdentifiers']);
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(IterableProperty('products', products));
+    properties.add(IterableProperty(
+        'invalidProductIdentifiers', invalidProductIdentifiers));
+  }
 }
 
 /// An object in the payment queue.
@@ -297,7 +305,7 @@ class SKProductsResponse {
 /// processing the payment. Completed transactions provide a receipt and
 /// transaction identifier that your app can use to save a permanent record
 /// of the processed payment.
-class SKPaymentTransaction {
+class SKPaymentTransaction extends Diagnosticable {
   /// The payment for the transaction.
   ///
   /// Each payment transaction is created in response to a payment that your
@@ -375,8 +383,8 @@ class SKPaymentTransaction {
     if (data == null) return null;
     final payment = SKPayment.fromMap(data['payment']);
     final transactionIdentifier = data['transactionIdentifier'] as String;
-    final transctionDate = data['transactionDate'] != null
-        ? DateTime.fromMicrosecondsSinceEpoch(data['transactionDate'])
+    final transactionDate = data['transactionDate'] != null
+        ? DateTime.fromMillisecondsSinceEpoch(data['transactionDate'])
         : null;
     final original = SKPaymentTransaction.fromMap(data['original']);
     final error = SKError.fromMap(data['error']);
@@ -387,7 +395,7 @@ class SKPaymentTransaction {
     return SKPaymentTransaction._(
       payment: payment,
       transactionIdentifier: transactionIdentifier,
-      transactionDate: transctionDate,
+      transactionDate: transactionDate,
       original: original,
       error: error,
       downloads: downloads,
@@ -408,6 +416,19 @@ class SKPaymentTransaction {
           : null,
       'transactionState': _encodeTransactionState(transactionState),
     };
+  }
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(DiagnosticsProperty<SKPayment>('payment', payment));
+    properties
+        .add(StringProperty('transactionIdentifier', transactionIdentifier));
+    properties.add(
+        StringProperty('transctionDate', transactionDate?.toIso8601String()));
+    properties.add(DiagnosticsProperty<SKError>('error', error));
+    properties.add(IterableProperty('downloads', downloads));
+    properties.add(EnumProperty('transactionState', transactionState));
   }
 }
 
@@ -617,6 +638,30 @@ SKDownloadState _decodeDownloadState(String value) {
 
 /// StoreKit error.
 class SKError {
+  // kSK* error codes originated in StoreKit service layer.
+  static const String kSKUnknown = 'SKErrorUnknown';
+  static const String kSKClientInvalid = 'SKErrorClientInvalid';
+  static const String kSKCancelled = 'SKErrorPaymentCancelled';
+  static const String kSKPaymentInvalid = 'SKErrorPaymentInvalid';
+  static const String kSKPaymentNotAllowed = 'SKErrorPaymentNotAllowed';
+  static const String kSKCloudServicePermissionDenied =
+      'SKErrorCloudServicePermissionDenied';
+  static const String kSKCloudServiceNetworkConnectionFailed =
+      'SKErrorCloudServiceNetworkConnectionFailed';
+
+  // kUrl* error codes originated in network transport layer.
+  static const String kUrlTimedOut = 'NSURLErrorTimedOut';
+  static const String kUrlCannotFindHost = 'NSURLErrorCannotFindHost';
+  static const String kUrlCannotConnectToHost = 'NSURLErrorCannotConnectToHost';
+  static const String kUrlNetworkConnectionLost =
+      'NSURLErrorNetworkConnectionLost';
+  static const String kUrlNotConnectedToInternet =
+      'NSURLErrorNotConnectedToInternet';
+  static const String kUrlUserCancelledAuthentication =
+      'NSURLErrorUserCancelledAuthentication';
+  static const String kUrlSecureConnectionFailed =
+      'NSURLErrorSecureConnectionFailed';
+
   final String code;
   final String localizedDescription;
 
@@ -647,7 +692,7 @@ class SKError {
 ///
 /// A payment object encapsulates a string that identifies a particular
 /// product and the quantity of those items the user would like to purchase.
-class SKPayment {
+class SKPayment extends Diagnosticable {
   /// A string used to identify a product that can be purchased from within
   /// your application.
   final String productIdentifier;
@@ -675,7 +720,9 @@ class SKPayment {
     @required this.quantity,
     this.applicationUsername,
     this.simulatesAskToBuyInSandbox,
-  }) : assert(productIdentifier != null && quantity != null);
+  }) : assert(productIdentifier != null &&
+            quantity != null &&
+            simulatesAskToBuyInSandbox != null);
 
   factory SKPayment.withProduct(
     SKProduct product, {
@@ -689,7 +736,7 @@ class SKPayment {
       productIdentifier: product.productIdentifier,
       quantity: quantity,
       applicationUsername: applicationUsername,
-      simulatesAskToBuyInSandbox: simulatesAskToBuyInSandbox,
+      simulatesAskToBuyInSandbox: simulatesAskToBuyInSandbox ?? false,
     );
   }
 
@@ -703,7 +750,7 @@ class SKPayment {
       productIdentifier: productIdentifier,
       quantity: quantity,
       applicationUsername: applicationUsername,
-      simulatesAskToBuyInSandbox: simulatesAskToBuyInSandbox,
+      simulatesAskToBuyInSandbox: simulatesAskToBuyInSandbox ?? false,
     );
   }
 
@@ -731,5 +778,18 @@ class SKPayment {
       'applicationUsername': applicationUsername,
       'simulatesAskToBuyInSandbox': simulatesAskToBuyInSandbox,
     };
+  }
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(StringProperty('productIdentifier', productIdentifier));
+    properties.add(IntProperty('quantity', quantity));
+    properties.add(StringProperty('applicationUsername', applicationUsername));
+    properties.add(FlagProperty(
+      'simulatesAskToBuyInSandbox',
+      value: simulatesAskToBuyInSandbox,
+      ifTrue: 'simulatesAskToBuyInSandbox',
+    ));
   }
 }

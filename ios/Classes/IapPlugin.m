@@ -194,8 +194,8 @@
     
     NSNumber *transactionDateMSec;
     if (transaction.transactionDate != nil) {
-        int msecs = floor(transaction.transactionDate.timeIntervalSince1970) * 1000;
-        transactionDateMSec = [NSNumber numberWithInt:msecs];
+        long msecs = transaction.transactionDate.timeIntervalSince1970 * 1000;
+        transactionDateMSec = [NSNumber numberWithLong:msecs];
     }
     NSDictionary *original = [self encodeTransaction:transaction.originalTransaction];
     NSDictionary *error;
