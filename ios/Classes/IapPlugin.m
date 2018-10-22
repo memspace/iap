@@ -580,6 +580,7 @@ static NSString *const CHANNEL_NAME = @"flutter.memspace.io/iap";
     } else {
         [[SKPaymentQueue defaultQueue] restoreCompletedTransactionsWithApplicationUsername:applicationUsername];
     }
+    result(nil);
 }
 
 @end
