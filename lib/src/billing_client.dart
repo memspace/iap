@@ -6,12 +6,12 @@ import 'package:flutter/services.dart';
 part 'billing_client_data.dart';
 part 'billing_client_types.dart';
 
-class BillingException implements Exception {
+class BillingClientException implements Exception {
   /// Response code, one of [BillingResponse] constants.
   final int code;
   final String message;
 
-  BillingException(this.code, this.message);
+  BillingClientException(this.code, this.message);
 
   @override
   String toString() {
@@ -84,7 +84,7 @@ class BillingClient {
     final int result =
         await channel.invokeMethod('BillingClient#consume', purchaseToken);
     if (result == 0) return result;
-    throw BillingException(result, 'Failed to consume purchase.');
+    throw BillingClientException(result, 'Failed to consume purchase.');
   }
 
   /// Closes the connection and releases all held resources such as service
@@ -128,7 +128,7 @@ class BillingClient {
     final int responseCode = await channel.invokeMethod(
         'BillingClient#launchBillingFlow', params.toMap());
     if (responseCode == 0) return;
-    throw BillingException(responseCode, 'Failed to launch billing flow.');
+    throw BillingClientException(responseCode, 'Failed to launch billing flow.');
   }
 
   /// Initiate a flow to confirm the change of price for an item subscribed by
@@ -148,7 +148,7 @@ class BillingClient {
       skuDetails._handle,
     );
     if (responseCode == 0) return;
-    throw BillingException(
+    throw BillingClientException(
         responseCode, 'Failed to launch price change confirmation flow.');
   }
 
@@ -159,7 +159,7 @@ class BillingClient {
   /// obtain a rewarded item and call [launchBillingFlow].
   ///
   /// If the rewarded sku is available, then returned Future completes
-  /// successfully. Otherwise it completes with [BillingException] containing
+  /// successfully. Otherwise it completes with [BillingClientException] containing
   /// response code of the operation (normally
   /// [BillingResponse.kItemUnavailable]).
   Future<void> loadRewardedSku({SkuDetails skuDetails}) async {
@@ -168,7 +168,7 @@ class BillingClient {
     final int responseCode = await channel.invokeMethod(
         'BillingClient#loadRewardedSku', skuDetails._handle);
     if (responseCode == 0) return;
-    throw BillingException(responseCode, 'Failed to load rewarded SKU.');
+    throw BillingClientException(responseCode, 'Failed to load rewarded SKU.');
   }
 
   /// Returns the most recent purchase made by the user for each SKU type, even
@@ -176,7 +176,7 @@ class BillingClient {
   ///
   /// [skuType] must be one of [SkuType] constants.
   ///
-  /// If query fails then returned Future completes with [BillingException]
+  /// If query fails then returned Future completes with [BillingClientException]
   /// containing response code of the error.
   Future<List<Purchase>> queryPurchaseHistory(String skuType) async {
     final result = await channel.invokeMethod(
@@ -184,7 +184,7 @@ class BillingClient {
     final response = Map<String, Object>.from(result);
     final code = response['responseCode'] as int;
     if (code != 0) {
-      throw new BillingException(code, 'Failed to fetch purchase history.');
+      throw new BillingClientException(code, 'Failed to fetch purchase history.');
     }
     final list = List.from(response['purchases']);
     return list.map((item) {
@@ -199,7 +199,7 @@ class BillingClient {
   ///
   /// [skuType] must be one of [SkuType] constants.
   ///
-  /// If query fails then returned Future completes with [BillingException]
+  /// If query fails then returned Future completes with [BillingClientException]
   /// containing response code of the error.
   ///
   /// Note: It's recommended for security purposes to go through purchases
@@ -211,7 +211,7 @@ class BillingClient {
     final response = Map<String, Object>.from(result);
     final code = response['responseCode'] as int;
     if (code != 0) {
-      throw new BillingException(code, 'Failed to fetch purchases.');
+      throw new BillingClientException(code, 'Failed to fetch purchases.');
     }
     final list = List.from(response['purchases']);
     return list.map((item) {
@@ -229,7 +229,7 @@ class BillingClient {
     final data = new Map<String, Object>.from(result);
     final int responseCode = data['responseCode'];
     if (responseCode != 0) {
-      throw new BillingException(responseCode, 'Failed to fetch SKU details.');
+      throw new BillingClientException(responseCode, 'Failed to fetch SKU details.');
     }
 
     final list = new List.from(data['skuDetails']);
@@ -251,7 +251,7 @@ class BillingClient {
   /// Starts up this client's setup process asynchronously.
   ///
   /// Returned Future completes with [BillingResponse.kOk] on success, otherwise
-  /// it completes with [BillingException] containing response code.
+  /// it completes with [BillingClientException] containing response code.
   ///
   /// [onDisconnect] callback can be used to get notified when this client
   /// looses connection and indicates that you need initialize new connection
@@ -269,7 +269,7 @@ class BillingClient {
         await channel.invokeMethod('BillingClient#startConnection');
     if (result == 0) return result;
     _onDisconnect = null;
-    throw BillingException(result, 'Failed to start billing connection.');
+    throw BillingClientException(result, 'Failed to start billing connection.');
   }
 
   VoidCallback _onDisconnect;

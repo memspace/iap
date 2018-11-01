@@ -4,35 +4,23 @@ Work in progress.
 
 ### How this plugin is different from others
 
-The main difference is that this plugin does **not** provide common
-interface for interacting with Andoid and iOS payment APIs. The reason is simply 
-because those APIs have very little in common, so defining a common interface would
-suffer from many inconsistencies and limitations.
+The main difference is that instead of providing unified interface for in-app purchases
+on iOS and Android, this plugin exposes two separate APIs.
 
-> This clearly goes against best practices [described by a Google engineer](good-plugins).
-> However I believe this is a rare case where it is more beneficial to
-> take a slightly different path. Similarly to how [device_info]() plugin did.
+There are several benefits to this approach:
 
-[good-plugins]: https://medium.com/flutter-io/writing-a-good-flutter-plugin-1a561b986c9c?linkId=57996885
-[device_info]: https://pub.dartlang.org/packages/device_info
-
-Instead this plugin aims to provide two distinct interfaces for iOS StoreKit
-and Android BillingClient. This way we can expose complete feature set
-for both platforms. It is up to the user of this plugin to define a unified
-interface inside their app which suites their workflow best.
-
-There is additional benefit of having the same API interface in your Dart code
-as you can rely on a lot of information available in official docs as well as
-on the Internet. This makes it easier to get started and learn.
+* We can expose complete API interfaces for both platforms, without having to look for highest
+  common denominator of those APIs.
+* Dart interfaces designed to match native ones most of the time. `StoreKit` for iOS follows
+  native interface in 99% of cases. `BillingClient` for Android is very similar as well, but also
+  simplifies some parts of native protocol (mostly replaces listeners with Dart `Future`s).
+* Developers familiar with native APIs would find it easier to learn. You can simply refer to
+  official documentation in most cases to find details about certain method of field.
 
 All Dart code is thoroughly documented with information taken directly from 
-Apple developers website (for StoreKit).
+Apple Developers website (for StoreKit) and Android Developers website (for BillingClient).
 
-### Status
-
-Current version only implements iOS portion with Android side coming next.
-
-### StoreKit
+### StoreKit (iOS)
 
 > Plugin currently implements all native APIs except for **downloads**.
 > If you are looking for this functionality consider submitting a pull request
@@ -132,3 +120,43 @@ await StoreKit.instance.paymentQueue.restoreCompletedTransactions();
 /// `failedToRestoreCompletedTransactions` on observer to track
 /// result of this operation.
 ```
+
+### BillingClient (Android)
+
+Plugin wraps official [Google Play Billing Library](https://developer.android.com/google/play/billing/billing_library_overview).
+Main entry point is the `BillingClient` class:
+
+#### Set listener and start connection
+
+In order to use `BillingClient` we need to start connection with billing service. But before
+we can initiate connection we need to set purchase update listener which is required to
+handle purchases:
+
+```dart
+import 'package:iap/iap.dart';
+
+class MyAppBillingService implements PurchaseUpdatedListener {
+  MyAppBillingService() {
+    BillingClient.instance.setListener(this);
+  }
+
+  bool _connected = false;
+
+  Future<void> _ensureConnected() async {
+    if (_connected) return;
+    try {
+      await BillingClient.instance.startConnection(onDisconnected: _handleDisconnect);
+      _connected = true;
+    } on BillingClientException catch(error) {
+      // Handle exception by checking response code in [error.code].
+    }
+  }
+
+  void _handleDisconnect() {
+    // When client disconnects we get notification here.
+    _connected = false;
+  }
+}
+```
+
+Once connection has been established we can start using other functionality of `BillingClient`.
