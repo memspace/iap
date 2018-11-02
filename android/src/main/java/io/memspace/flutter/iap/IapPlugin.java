@@ -25,26 +25,49 @@ public class IapPlugin implements MethodCallHandler {
 
   private IapPlugin(Registrar registrar, MethodChannel channel) {
     this.registar = registrar;
-    this.observer = new BillingObserver(channel);
-    this.client = BillingClient.newBuilder(registrar.context()).setListener(this.observer).build();
+    this.channel = channel;
   }
 
   private  Registrar registar;
-  private BillingClient client;
-  private  BillingObserver observer;
-
+  private  MethodChannel channel;
   @SuppressLint("UseSparseArrays")
-  private Map<Integer, SkuDetails> skuDetailsMap = new HashMap<>();
-  private int nextSkuDetailsHandle = 0;
+  private Map<Integer, BillingClient> clients = new HashMap<>();
+  @SuppressLint("UseSparseArrays")
+  private  Map<Integer,BillingObserver> observers = new HashMap<>();
 
   private class BillingObserver implements  PurchasesUpdatedListener {
+    private  int handle;
     private MethodChannel channel;
-    BillingObserver(MethodChannel channel) {
+
+    @SuppressLint("UseSparseArrays")
+    private Map<Integer, SkuDetails> skuDetailsMap = new HashMap<>();
+    private int nextSkuDetailsHandle = 0;
+
+    BillingObserver(int handle, MethodChannel channel) {
+      this.handle = handle;
       this.channel = channel;
     }
 
+    SkuDetails getSkuDetails(Integer detailsHandle) {
+      return skuDetailsMap.get(detailsHandle);
+    }
+
+    List<Map<String, Object>> registerSkuDetails(List<SkuDetails> skuDetailsList) {
+      List<Map<String, Object>> encodedDetails = null;
+
+      if (skuDetailsList != null) {
+        encodedDetails = new ArrayList<>();
+        for (SkuDetails detail: skuDetailsList) {
+          Integer handle = nextSkuDetailsHandle++;
+          skuDetailsMap.put(handle, detail);
+          encodedDetails.add(encodeSkuDetails(handle, detail));
+        }
+      }
+      return encodedDetails;
+    }
+
     void notifyDisconnected() {
-      channel.invokeMethod("BillingClient#disconnected", null);
+      channel.invokeMethod("BillingClient#disconnected", handle);
     }
 
     @Override
@@ -58,6 +81,7 @@ public class IapPlugin implements MethodCallHandler {
       }
 
       Map<String, Object> args = new HashMap<>();
+      args.put("handle", handle);
       args.put("responseCode", responseCode);
       args.put("purchases", encodedPurchases);
 
@@ -65,155 +89,234 @@ public class IapPlugin implements MethodCallHandler {
     }
   }
 
+  private BillingClient getClient(Integer handle) {
+    if (clients.containsKey(handle)) return clients.get(handle);
+    return null;
+  }
+
   @Override
   public void onMethodCall(MethodCall call, final Result result) {
     switch (call.method) {
       case "BillingClient#consume":
       {
-        final String purchaseToken = call.arguments();
-        client.consumeAsync(purchaseToken, new ConsumeResponseListener() {
-          @Override
-          public void onConsumeResponse(int responseCode, String purchaseToken) {
-            result.success(responseCode);
-          }
-        });
+        final Integer handle = call.argument("handle");
+        final String purchaseToken = call.argument("purchaseToken");
+        final BillingClient client = getClient(handle);
+        if (client == null) {
+          result.error("IAP_BILLING_CLIENT_NOT_FOUND", "Must initialize BillingClient with a call to startConnection().", null);
+        } else {
+          client.consumeAsync(purchaseToken, new ConsumeResponseListener() {
+            @Override
+            public void onConsumeResponse(int responseCode, String purchaseToken) {
+              result.success(responseCode);
+            }
+          });
+        }
+
         break;
       }
       case "BillingClient#endConnection":
       {
-        client.endConnection();
-        result.success(null);
+        final Integer handle = call.arguments();
+        final BillingClient client = getClient(handle);
+        if (client == null) {
+          result.error("IAP_BILLING_CLIENT_NOT_FOUND", "Must initialize BillingClient with a call to startConnection().", null);
+        } else {
+          client.endConnection();
+          clients.remove(handle);
+          observers.remove(handle);
+          result.success(null);
+        }
+
         break;
       }
       case "BillingClient#isFeatureSupported":
       {
-        final String feature = call.arguments();
-        result.success(client.isFeatureSupported(feature));
+        final Integer handle = call.argument("handle");
+        final String feature = call.argument("feature");
+        final BillingClient client = getClient(handle);
+        if (client == null) {
+          result.error("IAP_BILLING_CLIENT_NOT_FOUND", "Must initialize BillingClient with a call to startConnection().", null);
+        } else {
+          result.success(client.isFeatureSupported(feature));
+        }
         break;
       }
       case "BillingClient#isReady":
       {
-        result.success(client.isReady());
+        final Integer handle = call.arguments();
+        final BillingClient client = getClient(handle);
+        if (client == null) {
+          result.error("IAP_BILLING_CLIENT_NOT_FOUND", "Must initialize BillingClient with a call to startConnection().", null);
+        } else {
+          result.success(client.isReady());
+        }
         break;
       }
       case "BillingClient#launchBillingFlow":
       {
-        Map<String, Object> args = call.arguments();
-        BillingFlowParams params = createBillingFlowParams(args);
-        result.success(client.launchBillingFlow(registar.activity(), params));
+        final Integer handle = call.argument("handle");
+        final BillingClient client = getClient(handle);
+        if (client == null) {
+          result.error("IAP_BILLING_CLIENT_NOT_FOUND", "Must initialize BillingClient with a call to startConnection().", null);
+        } else {
+          final Map<String, Object> data = call.argument("params");
+          assert data != null;
+          BillingFlowParams params = createBillingFlowParams(handle, data);
+          result.success(client.launchBillingFlow(registar.activity(), params));
+        }
         break;
       }
       case "BillingClient#launchPriceChangeConfirmationFlow":
       {
-        Integer handle = call.arguments();
-        SkuDetails details = skuDetailsMap.get(handle);
-        PriceChangeFlowParams params = PriceChangeFlowParams.newBuilder().setSkuDetails(details).build();
-        client.launchPriceChangeConfirmationFlow(registar.activity(), params, new PriceChangeConfirmationListener() {
-          @Override
-          public void onPriceChangeConfirmationResult(int responseCode) {
-            result.success(responseCode);
-          }
-        });
+        Integer handle = call.argument("handle");
+        final BillingClient client = getClient(handle);
+        if (client == null) {
+          result.error("IAP_BILLING_CLIENT_NOT_FOUND", "Must initialize BillingClient with a call to startConnection().", null);
+        } else {
+          BillingObserver observer = observers.get(handle);
+          Integer detailsHandle = call.argument("skuDetails");
+          SkuDetails details = observer.getSkuDetails(detailsHandle);
+          PriceChangeFlowParams params = PriceChangeFlowParams.newBuilder().setSkuDetails(details).build();
+          client.launchPriceChangeConfirmationFlow(registar.activity(), params, new PriceChangeConfirmationListener() {
+            @Override
+            public void onPriceChangeConfirmationResult(int responseCode) {
+              result.success(responseCode);
+            }
+          });
+        }
         break;
       }
       case "BillingClient#loadRewardedSku":
       {
-        Integer handle = call.arguments();
-        SkuDetails details = skuDetailsMap.get(handle);
-        RewardLoadParams params = RewardLoadParams.newBuilder().setSkuDetails(details).build();
-        client.loadRewardedSku(params, new RewardResponseListener() {
-          @Override
-          public void onRewardResponse(int responseCode) {
-            result.success(responseCode);
-          }
-        });
+        Integer handle = call.argument("handle");
+        final BillingClient client = getClient(handle);
+        if (client == null) {
+          result.error("IAP_BILLING_CLIENT_NOT_FOUND", "Must initialize BillingClient with a call to startConnection().", null);
+        } else {
+          BillingObserver observer = observers.get(handle);
+          Integer detailsHandle = call.argument("skuDetails");
+          SkuDetails details = observer.getSkuDetails(detailsHandle);
+          RewardLoadParams params = RewardLoadParams.newBuilder().setSkuDetails(details).build();
+          client.loadRewardedSku(params, new RewardResponseListener() {
+            @Override
+            public void onRewardResponse(int responseCode) {
+              result.success(responseCode);
+            }
+          });
+        }
         break;
       }
       case "BillingClient#queryPurchaseHistory":
       {
-        String skuType = call.arguments();
-        client.queryPurchaseHistoryAsync(skuType, new PurchaseHistoryResponseListener() {
-          @Override
-          public void onPurchaseHistoryResponse(int responseCode, List<Purchase> purchasesList) {
-            List<Map<String, Object>> encodedPurchases = null;
-            if (purchasesList != null) {
-              encodedPurchases = new ArrayList<>();
-              for (Purchase purchase: purchasesList) {
-                encodedPurchases.add(encodePurchase(purchase));
+        Integer handle = call.argument("handle");
+        final BillingClient client = getClient(handle);
+        if (client == null) {
+          result.error("IAP_BILLING_CLIENT_NOT_FOUND", "Must initialize BillingClient with a call to startConnection().", null);
+        } else {
+          String skuType = call.argument("skuType");
+          client.queryPurchaseHistoryAsync(skuType, new PurchaseHistoryResponseListener() {
+            @Override
+            public void onPurchaseHistoryResponse(int responseCode, List<Purchase> purchasesList) {
+              List<Map<String, Object>> encodedPurchases = null;
+              if (purchasesList != null) {
+                encodedPurchases = new ArrayList<>();
+                for (Purchase purchase: purchasesList) {
+                  encodedPurchases.add(encodePurchase(purchase));
+                }
               }
+
+              Map<String, Object> data = new HashMap<>();
+              data.put("responseCode", responseCode);
+              data.put("purchases", encodedPurchases);
+
+              result.success(data);
             }
-
-            Map<String, Object> data = new HashMap<>();
-            data.put("responseCode", responseCode);
-            data.put("purchases", encodedPurchases);
-
-            result.success(data);
-          }
-        });
+          });
+        }
         break;
       }
       case "BillingClient#queryPurchases":
       {
-        String skuType = call.arguments();
-        Purchase.PurchasesResult response =  client.queryPurchases(skuType);
-        List<Map<String, Object>> encodedPurchases = null;
-        if (response.getPurchasesList() != null) {
-          encodedPurchases = new ArrayList<>();
-          for (Purchase purchase: response.getPurchasesList()) {
-            encodedPurchases.add(encodePurchase(purchase));
+        Integer handle = call.argument("handle");
+        final BillingClient client = getClient(handle);
+        if (client == null) {
+          result.error("IAP_BILLING_CLIENT_NOT_FOUND", "Must initialize BillingClient with a call to startConnection().", null);
+        } else {
+          String skuType = call.argument("skuType");
+          Purchase.PurchasesResult response =  client.queryPurchases(skuType);
+          List<Map<String, Object>> encodedPurchases = null;
+          if (response.getPurchasesList() != null) {
+            encodedPurchases = new ArrayList<>();
+            for (Purchase purchase: response.getPurchasesList()) {
+              encodedPurchases.add(encodePurchase(purchase));
+            }
           }
+
+          Map<String, Object> data = new HashMap<>();
+          data.put("responseCode", response.getResponseCode());
+          data.put("purchases", encodedPurchases);
+
+          result.success(data);
         }
 
-        Map<String, Object> data = new HashMap<>();
-        data.put("responseCode", response.getResponseCode());
-        data.put("purchases", encodedPurchases);
-
-        result.success(data);
         break;
       }
       case "BillingClient#querySkuDetails":
       {
-        String skuType = call.argument("skuType");
-        List<String> skus = call.argument("skus");
+        final Integer handle = call.argument("handle");
+        final BillingClient client = getClient(handle);
+        if (client == null) {
+          result.error("IAP_BILLING_CLIENT_NOT_FOUND", "Must initialize BillingClient with a call to startConnection().", null);
+        } else {
+          String skuType = call.argument("skuType");
+          List<String> skus = call.argument("skus");
 
-        SkuDetailsParams.Builder builder = SkuDetailsParams.newBuilder();
-        if (skuType != null) builder.setType(skuType);
-        if (skus != null) builder.setSkusList(skus);
+          SkuDetailsParams.Builder builder = SkuDetailsParams.newBuilder();
+          if (skuType != null) builder.setType(skuType);
+          if (skus != null) builder.setSkusList(skus);
 
-        SkuDetailsParams params = builder.build();
-        client.querySkuDetailsAsync(params, new SkuDetailsResponseListener() {
-          @Override
-          public void onSkuDetailsResponse(int responseCode, List<SkuDetails> skuDetailsList) {
-            List<Map<String, Object>> encodedDetails = null;
+          SkuDetailsParams params = builder.build();
+          client.querySkuDetailsAsync(params, new SkuDetailsResponseListener() {
+            @Override
+            public void onSkuDetailsResponse(int responseCode, List<SkuDetails> skuDetailsList) {
+              BillingObserver observer = observers.get(handle);
+              List<Map<String, Object>> encodedDetails = observer.registerSkuDetails(skuDetailsList);
 
-            if (skuDetailsList != null) {
-              encodedDetails = new ArrayList<>();
-              for (SkuDetails detail: skuDetailsList) {
-                Integer handle = nextSkuDetailsHandle++;
-                skuDetailsMap.put(handle, detail);
-                encodedDetails.add(encodeSkuDetails(handle, detail));
-              }
+              Map<String, Object> data = new HashMap<>();
+              data.put("responseCode", responseCode);
+              data.put("skuDetails", encodedDetails);
+
+              result.success(data);
             }
-
-            Map<String, Object> data = new HashMap<>();
-            data.put("responseCode", responseCode);
-            data.put("skuDetails", encodedDetails);
-
-            result.success(data);
-          }
-        });
+          });
+        }
         break;
       }
       case "BillingClient#setChildDirected":
       {
-        Integer value = call.arguments();
-        client.setChildDirected(value);
-        result.success(null);
-        break;
-
+        final Integer handle = call.argument("handle");
+        final BillingClient client = getClient(handle);
+        if (client == null) {
+          result.error("IAP_BILLING_CLIENT_NOT_FOUND", "Must initialize BillingClient with a call to startConnection().", null);
+        } else {
+          final Integer value = call.argument("childDirected");
+          assert value != null;
+          client.setChildDirected(value);
+          result.success(null);
+          break;
+        }
       }
       case "BillingClient#startConnection":
       {
+        final Integer handle = call.arguments();
+        BillingClient client = getClient(handle);
+        if (client == null) {
+          final BillingObserver observer = new BillingObserver(handle, channel);
+          client = BillingClient.newBuilder(registar.context()).setListener(observer).build();
+          clients.put(handle, client);
+          observers.put(handle, observer);
+        }
         client.startConnection(new BillingClientStateListener() {
           @Override
           public void onBillingSetupFinished(int responseCode) {
@@ -222,7 +325,7 @@ public class IapPlugin implements MethodCallHandler {
 
           @Override
           public void onBillingServiceDisconnected() {
-            observer.notifyDisconnected();
+            observers.get(handle).notifyDisconnected();
           }
         });
         break;
@@ -235,11 +338,12 @@ public class IapPlugin implements MethodCallHandler {
     }
   }
 
-  private BillingFlowParams createBillingFlowParams(Map<String, Object> data) {
+  private BillingFlowParams createBillingFlowParams(Integer handle, Map<String, Object> data) {
+    BillingObserver observer = observers.get(handle);
     BillingFlowParams.Builder builder = BillingFlowParams.newBuilder();
     if (data.containsKey("skuDetails")) {
-      Integer handle = (Integer) data.get("skuDetails");
-      SkuDetails details = skuDetailsMap.get(handle);
+      Integer detailsHandle = (Integer) data.get("skuDetails");
+      SkuDetails details = observer.getSkuDetails(detailsHandle);
       builder.setSkuDetails(details);
     }
     return builder.build();

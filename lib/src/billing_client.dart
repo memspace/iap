@@ -38,40 +38,42 @@ class BillingClientException implements Exception {
 /// service and the manager to handle broadcast events, which will leak unless
 /// you dispose it correctly.
 class BillingClient {
-  static const MethodChannel channel = MethodChannel('flutter.memspace.io/iap');
+  static MethodChannel channel = MethodChannel('flutter.memspace.io/iap')
+    ..setMethodCallHandler(_handleMethodCall);
 
-  static final BillingClient instance = BillingClient._();
+  static final Map<int, BillingClient> _clients = {};
+  static int _nextHandle = 0;
 
-  Future _handleMethodCall(MethodCall call) async {
+  static Future _handleMethodCall(MethodCall call) async {
     switch (call.method) {
       case 'BillingClient#disconnected':
-        _disconnected();
+        final int handle = call.arguments;
+        _clients[handle]._disconnected();
         break;
       case 'BillingClient#purchasesUpdated':
         final args = Map<String, Object>.from(call.arguments);
+        final int handle = args['handle'];
+        final client = _clients[handle];
+
         final int responseCode = args['responseCode'];
         final list = List.from(args['purchases']);
         final purchases = list.map((item) {
           return Purchase.fromMap(Map<String, Object>.from(item));
         }).toList(growable: false);
-        _listener.onPurchasesUpdated(responseCode, purchases);
+
+        client.listener.onPurchasesUpdated(responseCode, purchases);
         break;
       default:
         throw new UnimplementedError('Method ${call.method} not implemented.');
     }
   }
 
-  BillingClient._() {
-    channel.setMethodCallHandler(_handleMethodCall);
-  }
+  BillingClient(this.listener)
+      : assert(listener != null),
+        _handle = _nextHandle++;
 
-  PurchasesUpdatedListener _listener;
-
-  /// Sets listener for purchase updates, replaces any previously set listener.
-  ///
-  void setListener(PurchasesUpdatedListener listener) {
-    _listener = listener;
-  }
+  final int _handle;
+  final PurchasesUpdatedListener listener;
 
   /// Consumes a given in-app product.
   ///
@@ -91,17 +93,21 @@ class BillingClient {
   /// connections.
   ///
   /// Call this method once you are done with this BillingClient reference.
+  ///
+  /// Calling [startConnection] after it was closed using this method is not
+  /// allowed. Create new BillingClient in this case.
   Future<void> endConnection() async {
     _onDisconnect = null;
-    await channel.invokeMethod('BillingClient#endConnection');
+    await channel.invokeMethod('BillingClient#endConnection', _handle);
   }
 
   /// Check if specified feature or capability is supported by the Play Store.
   ///
   /// [feature] is one of [FeatureType] constants.
   Future<int> isFeatureSupported(String feature) async {
+    final args = {'handle': _handle, 'feature': feature};
     final int responseCode =
-        await channel.invokeMethod('BillingClient#isFeatureSupported', feature);
+        await channel.invokeMethod('BillingClient#isFeatureSupported', args);
     return responseCode;
   }
 
@@ -115,7 +121,8 @@ class BillingClient {
   /// queries and all other actions. If you need to check support for
   /// [SkuType.kSubs] or something different, use [isFeatureSupported] method.
   Future<bool> isReady() async {
-    final bool ready = await channel.invokeMethod('BillingClient#isReady');
+    final bool ready =
+        await channel.invokeMethod('BillingClient#isReady', _handle);
     return ready;
   }
 
@@ -125,10 +132,13 @@ class BillingClient {
   /// registered listener.
   Future<void> launchBillingFlow(BillingFlowParams params) async {
     assert(params != null);
-    final int responseCode = await channel.invokeMethod(
-        'BillingClient#launchBillingFlow', params.toMap());
+    final args = {'handle': _handle, 'params': params.toMap()};
+    final int responseCode =
+        await channel.invokeMethod('BillingClient#launchBillingFlow', args);
+
     if (responseCode == 0) return;
-    throw BillingClientException(responseCode, 'Failed to launch billing flow.');
+    throw BillingClientException(
+        responseCode, 'Failed to launch billing flow.');
   }
 
   /// Initiate a flow to confirm the change of price for an item subscribed by
@@ -142,11 +152,10 @@ class BillingClient {
   Future<void> launchPriceChangeConfirmationFlow(
       {SkuDetails skuDetails}) async {
     assert(skuDetails != null);
-
+    final args = {'handle': _handle, 'skuDetails': skuDetails._handle};
     final int responseCode = await channel.invokeMethod(
-      'BillingClient#launchPriceChangeConfirmationFlow',
-      skuDetails._handle,
-    );
+        'BillingClient#launchPriceChangeConfirmationFlow', args);
+
     if (responseCode == 0) return;
     throw BillingClientException(
         responseCode, 'Failed to launch price change confirmation flow.');
@@ -164,9 +173,10 @@ class BillingClient {
   /// [BillingResponse.kItemUnavailable]).
   Future<void> loadRewardedSku({SkuDetails skuDetails}) async {
     assert(skuDetails != null);
+    final args = {'handle': _handle, 'skuDetails': skuDetails._handle};
+    final int responseCode =
+        await channel.invokeMethod('BillingClient#loadRewardedSku', args);
 
-    final int responseCode = await channel.invokeMethod(
-        'BillingClient#loadRewardedSku', skuDetails._handle);
     if (responseCode == 0) return;
     throw BillingClientException(responseCode, 'Failed to load rewarded SKU.');
   }
@@ -179,12 +189,14 @@ class BillingClient {
   /// If query fails then returned Future completes with [BillingClientException]
   /// containing response code of the error.
   Future<List<Purchase>> queryPurchaseHistory(String skuType) async {
-    final result = await channel.invokeMethod(
-        'BillingClient#queryPurchaseHistory', skuType);
+    final args = {'handle': _handle, 'skuType': skuType};
+    final result =
+        await channel.invokeMethod('BillingClient#queryPurchaseHistory', args);
     final response = Map<String, Object>.from(result);
     final code = response['responseCode'] as int;
     if (code != 0) {
-      throw new BillingClientException(code, 'Failed to fetch purchase history.');
+      throw new BillingClientException(
+          code, 'Failed to fetch purchase history.');
     }
     final list = List.from(response['purchases']);
     return list.map((item) {
@@ -206,8 +218,9 @@ class BillingClient {
   /// verification on your backend (if you have one) by calling the following
   /// API: https://developers.google.com/android-publisher/api-ref/purchases/products/get
   Future<List<Purchase>> queryPurchases(String skuType) async {
+    final args = {'handle': _handle, 'skuType': skuType};
     final result =
-        await channel.invokeMethod('BillingClient#queryPurchases', skuType);
+        await channel.invokeMethod('BillingClient#queryPurchases', args);
     final response = Map<String, Object>.from(result);
     final code = response['responseCode'] as int;
     if (code != 0) {
@@ -222,14 +235,15 @@ class BillingClient {
   /// Perform a network query to get SKU details and return the result.
   Future<List<SkuDetails>> querySkuDetails(
       {String skuType, List<String> skus}) async {
-    final args = {'skuType': skuType, 'skus': skus};
+    final args = {'handle': _handle, 'skuType': skuType, 'skus': skus};
     final result =
         await channel.invokeMethod('BillingClient#querySkuDetails', args);
 
     final data = new Map<String, Object>.from(result);
     final int responseCode = data['responseCode'];
     if (responseCode != 0) {
-      throw new BillingClientException(responseCode, 'Failed to fetch SKU details.');
+      throw new BillingClientException(
+          responseCode, 'Failed to fetch SKU details.');
     }
 
     final list = new List.from(data['skuDetails']);
@@ -245,10 +259,11 @@ class BillingClient {
   /// are explicitly not allowed to collect information that can be used to
   /// personalize the rewarded videos to the user.
   Future<void> setChildDirected(int childDirected) async {
-    await channel.invokeMethod('BillingClient#setChildDirected', childDirected);
+    final args = {'handle': _handle, 'childDirected': childDirected};
+    await channel.invokeMethod('BillingClient#setChildDirected', args);
   }
 
-  /// Starts up this client's setup process asynchronously.
+  /// Starts up this client's setup process.
   ///
   /// Returned Future completes with [BillingResponse.kOk] on success, otherwise
   /// it completes with [BillingClientException] containing response code.
@@ -257,16 +272,13 @@ class BillingClient {
   /// looses connection and indicates that you need initialize new connection
   /// using [startConnection] in order to continue using this client.
   Future<int> startConnection({@required VoidCallback onDisconnect}) async {
-    assert(
-        _listener != null,
-        'Must set purchase listener before starting billing connection. '
-        'See BillingClient.instance.setListener().');
+    assert(onDisconnect != null, 'Must provide onDisconnect callback.');
     assert(_onDisconnect == null,
         'Attempting to start new connection while there is already an active one.');
 
     _onDisconnect = onDisconnect;
     final int result =
-        await channel.invokeMethod('BillingClient#startConnection');
+        await channel.invokeMethod('BillingClient#startConnection', _handle);
     if (result == 0) return result;
     _onDisconnect = null;
     throw BillingClientException(result, 'Failed to start billing connection.');
@@ -275,8 +287,9 @@ class BillingClient {
   VoidCallback _onDisconnect;
   void _disconnected() {
     if (_onDisconnect != null) {
+      final callback = _onDisconnect;
       _onDisconnect = null;
-      _onDisconnect();
+      callback();
     }
   }
 }

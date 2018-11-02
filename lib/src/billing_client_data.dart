@@ -1,6 +1,6 @@
 part of billing_client;
 
-class Purchase {
+class Purchase extends Diagnosticable {
   /// Unique order identifier for the transaction.
   final String orderId;
 
@@ -51,10 +51,25 @@ class Purchase {
       isAutoRenewing: data['isAutoRenewing'] as bool,
     );
   }
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(StringProperty('orderId', orderId));
+    properties.add(StringProperty('packageName', packageName));
+    properties.add(StringProperty('purchaseTime', '$purchaseTime'));
+    properties.add(StringProperty('purchaseToken', purchaseToken));
+    properties.add(StringProperty('signature', signature));
+    properties.add(StringProperty('sku', sku));
+    properties.add(FlagProperty('isAutoRenewing',
+        value: isAutoRenewing,
+        ifTrue: 'will renew',
+        ifFalse: 'will not renew'));
+  }
 }
 
 /// Represents an in-app product's or subscription's listing details.
-class SkuDetails {
+class SkuDetails extends Diagnosticable {
   /// The description of this product.
   final String description;
 
@@ -184,6 +199,36 @@ class SkuDetails {
       type: data['type'] as String,
       isRewarded: data['isRewarded'] as bool,
     );
+  }
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(StringProperty('sku', sku, showName: false));
+    properties.add(IntProperty('_handle', _handle));
+    properties.add(StringProperty('description', description));
+    properties.add(StringProperty('title', title));
+    properties.add(StringProperty('type', type));
+    properties.add(StringProperty('price', price));
+    properties.add(StringProperty('priceCurrencyCode', priceCurrencyCode));
+    properties.add(IntProperty('priceAmountMicros', priceAmountMicros));
+    properties.add(StringProperty('subscriptionPeriod', subscriptionPeriod));
+    properties.add(StringProperty('freeTrialPeriod', freeTrialPeriod));
+    properties.add(StringProperty('introductoryPrice', introductoryPrice));
+    properties.add(StringProperty(
+        'introductoryPriceAmountMicros', introductoryPriceAmountMicros));
+    properties.add(
+        StringProperty('introductoryPriceCycles', introductoryPriceCycles));
+    properties.add(
+        StringProperty('introductoryPricePeriod', introductoryPricePeriod));
+    properties.add(StringProperty('introductoryPrice', introductoryPrice));
+    properties.add(FlagProperty('isRewarded',
+        value: isRewarded, ifTrue: 'rewarded', ifFalse: 'not rewarded'));
+  }
+
+  @override
+  String toStringShort() {
+    return '$runtimeType#$sku';
   }
 }
 
