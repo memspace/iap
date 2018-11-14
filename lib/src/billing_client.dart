@@ -27,8 +27,8 @@ class BillingClientException implements Exception {
 /// billing operations.
 ///
 /// After instantiating, you must perform setup in order to start using the
-/// object. To perform setup, call the [startConnection] method and provide a
-/// listener; that listener will be notified when setup is complete, after
+/// object. To perform setup, call the [startConnection] method and wait for
+/// the returned Future to complete, after
 /// which (and not before) you may start calling other methods. After setup is
 /// complete, you will typically want to request an inventory of owned items
 /// and subscriptions. See [queryPurchases] and [querySkuDetails].
@@ -45,35 +45,50 @@ class BillingClient {
   static int _nextHandle = 0;
 
   static Future _handleMethodCall(MethodCall call) async {
-    switch (call.method) {
-      case 'BillingClient#disconnected':
-        final int handle = call.arguments;
-        _clients[handle]._disconnected();
-        break;
-      case 'BillingClient#purchasesUpdated':
-        final args = Map<String, Object>.from(call.arguments);
-        final int handle = args['handle'];
-        final client = _clients[handle];
+    try {
+      switch (call.method) {
+        case 'BillingClient#disconnected':
+          final int handle = call.arguments;
+          _clients[handle]._disconnected();
+          break;
+        case 'BillingClient#purchasesUpdated':
+          final args = new Map<String, Object>.from(call.arguments);
+          final int handle = args['handle'];
+          final client = _clients[handle];
 
-        final int responseCode = args['responseCode'];
-        final list = List.from(args['purchases']);
-        final purchases = list.map((item) {
-          return Purchase.fromMap(Map<String, Object>.from(item));
-        }).toList(growable: false);
+          final int responseCode = args['responseCode'];
 
-        client.listener.onPurchasesUpdated(responseCode, purchases);
-        break;
-      default:
-        throw new UnimplementedError('Method ${call.method} not implemented.');
+          final list = List.from(args['purchases'] ?? const []);
+          final purchases = list.map((item) {
+            return Purchase.fromMap(Map<String, Object>.from(item));
+          }).toList(growable: false);
+
+          client.listener.onPurchasesUpdated(responseCode, purchases);
+          break;
+        default:
+          throw new UnimplementedError(
+              'Method ${call.method} not implemented.');
+      }
+    } catch (error, trace) {
+      // Must manually report error here because any uncaught exception is
+      // silently swallowed by Flutter framework in plugin communication layer.
+      FlutterError.reportError(
+          new FlutterErrorDetails(exception: error, stack: trace));
     }
   }
 
   BillingClient(this.listener)
       : assert(listener != null),
-        _handle = _nextHandle++;
+        _handle = _nextHandle++ {
+    _clients[_handle] = this;
+  }
 
   final int _handle;
   final PurchasesUpdatedListener listener;
+
+  VoidCallback _onDisconnect;
+  // Whether user called [startConnection] at least once.
+  bool _registered = false;
 
   /// Consumes a given in-app product.
   ///
@@ -96,9 +111,16 @@ class BillingClient {
   ///
   /// Calling [startConnection] after it was closed using this method is not
   /// allowed. Create new BillingClient in this case.
+  ///
+  /// Calling this method with no previous calls to [startConnection] has no
+  /// effect.
   Future<void> endConnection() async {
     _onDisconnect = null;
-    await channel.invokeMethod('BillingClient#endConnection', _handle);
+    if (_registered) {
+      // Only call native endConnection if user actually started it.
+      await channel.invokeMethod('BillingClient#endConnection', _handle);
+    }
+    _clients.remove(_handle);
   }
 
   /// Check if specified feature or capability is supported by the Play Store.
@@ -136,7 +158,7 @@ class BillingClient {
     final int responseCode =
         await channel.invokeMethod('BillingClient#launchBillingFlow', args);
 
-    if (responseCode == 0) return;
+    if (responseCode == BillingResponse.kOk) return;
     throw BillingClientException(
         responseCode, 'Failed to launch billing flow.');
   }
@@ -272,6 +294,10 @@ class BillingClient {
   /// looses connection and indicates that you need initialize new connection
   /// using [startConnection] in order to continue using this client.
   Future<int> startConnection({@required VoidCallback onDisconnect}) async {
+    assert(
+        _clients.containsKey(_handle),
+        'Cannot user BillingClient after calling endConnection. '
+        'Create new instance of BillingClient instead.');
     assert(onDisconnect != null, 'Must provide onDisconnect callback.');
     assert(_onDisconnect == null,
         'Attempting to start new connection while there is already an active one.');
@@ -279,12 +305,12 @@ class BillingClient {
     _onDisconnect = onDisconnect;
     final int result =
         await channel.invokeMethod('BillingClient#startConnection', _handle);
+    _registered = true;
     if (result == 0) return result;
     _onDisconnect = null;
     throw BillingClientException(result, 'Failed to start billing connection.');
   }
 
-  VoidCallback _onDisconnect;
   void _disconnected() {
     if (_onDisconnect != null) {
       final callback = _onDisconnect;
