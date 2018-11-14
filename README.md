@@ -9,9 +9,9 @@ on iOS and Android, this plugin exposes two separate APIs.
 
 There are several benefits to this approach:
 
-* We can expose complete API interfaces for both platforms, without having to look for highest
+* We can expose _complete_ API interfaces for both platforms, without having to look for lowest
   common denominator of those APIs.
-* Dart interfaces designed to match native ones most of the time. `StoreKit` for iOS follows
+* Dart interfaces are designed to match native ones most of the time. `StoreKit` for iOS follows
   native interface in 99% of cases. `BillingClient` for Android is very similar as well, but also
   simplifies some parts of native protocol (mostly replaces listeners with Dart `Future`s).
 * Developers familiar with native APIs would find it easier to learn. You can simply refer to
@@ -19,6 +19,9 @@ There are several benefits to this approach:
 
 All Dart code is thoroughly documented with information taken directly from 
 Apple Developers website (for StoreKit) and Android Developers website (for BillingClient).
+
+Note that future version may introduce unified interfaces for specific use cases, for instance,
+handling of in-app subscriptions.
 
 ### StoreKit (iOS)
 
@@ -123,40 +126,48 @@ await StoreKit.instance.paymentQueue.restoreCompletedTransactions();
 
 ### BillingClient (Android)
 
-Plugin wraps official [Google Play Billing Library](https://developer.android.com/google/play/billing/billing_library_overview).
-Main entry point is the `BillingClient` class:
+This plugin wraps official [Google Play Billing Library](https://developer.android.com/google/play/billing/billing_library_overview).
+Use `BillingClient` class as the main entry point.
 
-#### Set listener and start connection
+Constructor of `BillingClient` class expects an instance of `PurchaseUpdatedListener` interface
+which looks like this:
 
-In order to use `BillingClient` we need to start connection with billing service. But before
-we can initiate connection we need to set purchase update listener which is required to
-handle purchases:
+```dart
+/// Listener interface for purchase updates which happen when, for example,
+/// the user buys something within the app or by initiating a purchase from
+/// Google Play Store.
+abstract class PurchasesUpdatedListener {
+  /// Implement this method to get notifications for purchases updates.
+  ///
+  /// Both purchases initiated by your app and the ones initiated by Play Store
+  /// will be reported here.
+  void onPurchasesUpdated(int responseCode, List<Purchase> purchases);
+}
+```
+
+#### Using `BillingClient`
+
+To begin working with Play Billing service always start from establishing connection using
+`startConnection` method:
 
 ```dart
 import 'package:iap/iap.dart';
 
-class MyAppBillingService implements PurchaseUpdatedListener {
-  MyAppBillingService() {
-    BillingClient.instance.setListener(this);
-  }
+bool _connected = false;
 
-  bool _connected = false;
+void main() async {
+  final client = BillingClient(yourPurchaseListener);
+  await client.startConnection(onDisconnect: handleDisconnect);
+  _connected = true;
 
-  Future<void> _ensureConnected() async {
-    if (_connected) return;
-    try {
-      await BillingClient.instance.startConnection(onDisconnected: _handleDisconnect);
-      _connected = true;
-    } on BillingClientException catch(error) {
-      // Handle exception by checking response code in [error.code].
-    }
-  }
+  // ...fetch SKUDetails, launch billing flows, query purchase history, etc
 
-  void _handleDisconnect() {
-    // When client disconnects we get notification here.
-    _connected = false;
-  }
+  await client.endConnection(); // Always call [endConnection] when work with this client is done.
+}
+
+void handleDisconnect() {
+  // Client disconnected. Make sure to call [startConnection] next time before invoking
+  // any other method of the client.
+  _connected = false;
 }
 ```
-
-Once connection has been established we can start using other functionality of `BillingClient`.
