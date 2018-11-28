@@ -226,6 +226,22 @@ void main() {
       }, throwsUnimplementedError);
     });
   });
+
+  group('SKPayment', () {
+    test('create for product', () {
+      final product = SKProduct.fromMap(testProduct);
+      final payment = SKPayment.withProduct(product);
+      expect(payment.productIdentifier, product.productIdentifier);
+      expect(payment.quantity, 1);
+    });
+
+    test('equality', () {
+      final product = SKProduct.fromMap(testProduct);
+      final payment1 = SKPayment.withProduct(product);
+      final payment2 = SKPayment.withProduct(product);
+      expect(payment1, equals(payment2));
+    });
+  });
 }
 
 final testProductId = 'com.example.sub.monthly';
