@@ -9,8 +9,6 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> with SKPaymentTransactionObserver {
-  String _platformVersion = 'Unknown';
-
   @override
   void initState() {
     super.initState();
@@ -34,10 +32,10 @@ class _MyAppState extends State<MyApp> with SKPaymentTransactionObserver {
     return new MaterialApp(
       home: new Scaffold(
         appBar: new AppBar(
-          title: const Text('Plugin example app'),
+          title: const Text('In-app purchases example'),
         ),
         body: new Center(
-          child: new Text('Running on: $_platformVersion\n'),
+          child: new Text('TODO'),
         ),
       ),
     );

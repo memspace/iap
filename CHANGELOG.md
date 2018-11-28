@@ -1,3 +1,4 @@
-## 0.0.1
+## 0.1.0
 
-* TODO: Describe initial release.
+Initial release provides implementations of both iOS StoreKit library and Android Play Billing
+library.

@@ -1,6 +1,6 @@
 Flutter plugin for interacting with iOS StoreKit and Android Billing Library.
 
-Work in progress.
+**Work in progress.**
 
 ### How this plugin is different from others
 
@@ -20,7 +20,7 @@ There are several benefits to this approach:
 All Dart code is thoroughly documented with information taken directly from 
 Apple Developers website (for StoreKit) and Android Developers website (for BillingClient).
 
-Note that future version may introduce unified interfaces for specific use cases, for instance,
+Note that future versions may introduce unified interfaces for specific use cases, for instance,
 handling of in-app subscriptions.
 
 ### StoreKit (iOS)

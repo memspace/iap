@@ -3,14 +3,14 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'iap'
-  s.version          = '0.0.1'
-  s.summary          = 'A new flutter plugin project.'
+  s.version          = '0.1.0'
+  s.summary          = 'Flutter plugin to access iOS StoreKit library from Dart.'
   s.description      = <<-DESC
-A new flutter plugin project.
+Flutter plugin to access iOS StoreKit library from Dart.
                        DESC
   s.homepage         = 'http://example.com'
   s.license          = { :file => '../LICENSE' }
-  s.author           = { 'Your Company' => 'email@example.com' }
+  s.author           = { 'Anatoly Pulyaevskiy' => 'anatoly.pulyaevskiy@gmail.com' }
   s.source           = { :path => '.' }
   s.source_files = 'Classes/**/*'
   s.public_header_files = 'Classes/**/*.h'
@@ -18,4 +18,3 @@ A new flutter plugin project.
   
   s.ios.deployment_target = '8.0'
 end
-
