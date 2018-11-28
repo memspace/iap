@@ -129,6 +129,9 @@ class BillingClient {
 
   /// Check if specified feature or capability is supported by the Play Store.
   ///
+  /// Returned Future resolves to an integer which is one of [BillingResponse]
+  /// constants.
+  ///
   /// [feature] is one of [FeatureType] constants.
   Future<int> isFeatureSupported(String feature) async {
     final args = {'handle': _handle, 'feature': feature};

@@ -15,23 +15,6 @@ abstract class PurchasesUpdatedListener {
   void onPurchasesUpdated(int responseCode, List<Purchase> purchases);
 }
 
-/// Callback for setup process. This listener's [onBillingSetupFinished] method
-/// is called when the setup process is complete.
-abstract class BillingClientStateListener {
-  /// Called to notify that connection to billing service was lost.
-  ///
-  /// Note: This does not remove billing service connection itself - this
-  /// binding to the service will remain active, and you will receive a call to
-  /// [onBillingSetupFinished] when billing service is next running and setup is
-  /// complete.
-  void onBillingServiceDisconnected();
-
-  /// Called to notify that setup is complete.
-  ///
-  /// [responseCode] indicates the status of the setup process.
-  void onBillingSetupFinished(int responseCode);
-}
-
 /// Billing response codes.
 abstract class BillingResponse {
   /// Billing API version is not supported for the type requested.
