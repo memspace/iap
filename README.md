@@ -1,5 +1,7 @@
 Flutter plugin for interacting with iOS StoreKit and Android Billing Library.
 
+[![Build Status](https://travis-ci.com/memspace/iap.svg?branch=master)](https://travis-ci.com/memspace/iap) [![codecov](https://codecov.io/gh/memspace/iap/branch/master/graph/badge.svg)](https://codecov.io/gh/memspace/iap)
+
 **Work in progress.**
 
 ### How this plugin is different from others
