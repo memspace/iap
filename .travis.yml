@@ -1,9 +1,3 @@
-language: dart
-
-dart:
-  - stable
-  - dev
-
 os:
   - linux
 
