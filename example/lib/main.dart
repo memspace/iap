@@ -7,6 +7,8 @@
 // simple example like this. Refer to official documentation for each platform
 // for more details.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:iap/iap.dart';
 
@@ -18,10 +20,29 @@ class MyApp extends StatefulWidget {
 }
 
 /// Define a transaction observer responsible for processing payment updates.
-class ExamplePaymentTransactionObserver extends SKPaymentTransactionObserver {
+/// In this example we also make this class encapsulate the whole purchase
+/// flow since it leads to a bit cleaner separation of concerns.
+class ExamplePurchaseProcessor extends SKPaymentTransactionObserver {
+  /// Payment initiated by the user and is currently being processed.
+  SKPayment _payment;
+  Completer<SKPaymentTransaction> _completer;
+
+  Future<SKPaymentTransaction> purchase(SKProduct product) {
+    assert(_payment == null, 'There is already purchase in progress.');
+    _payment = SKPayment.withProduct(product);
+    _completer = Completer<SKPaymentTransaction>();
+    StoreKit.instance.paymentQueue.addPayment(_payment);
+    return _completer.future;
+  }
+
   @override
   void didUpdateTransactions(
       SKPaymentQueue queue, List<SKPaymentTransaction> transactions) async {
+    // Note that this method can be invoked by StoreKit even if there is no
+    // active purchase initiated by the user (via [purchase] method), so
+    // you should take this into account.
+    // We only handle two states here (purchased and failed) and omit the rest
+    // for brevity purposes.
     for (final tx in transactions) {
       switch (tx.transactionState) {
         case SKPaymentTransactionState.purchased:
@@ -30,10 +51,25 @@ class ExamplePaymentTransactionObserver extends SKPaymentTransactionObserver {
           // this transaction will be redelivered by the queue on next application
           // launch.
           await queue.finishTransaction(tx);
+          if (_payment == tx.payment) {
+            // This transaction is related to an active purchase initiated
+            // by user in UI. Signal it's been completed successfully.
+            _completer.complete(tx);
+            _payment = null;
+            _completer = null;
+          }
           break;
         case SKPaymentTransactionState.failed:
-          // ...
+          // Purchase failed, make sure to notify the user in some way.
           await queue.finishTransaction(tx);
+          if (_payment == tx.payment) {
+            // This transaction is related to an active purchase as well.
+            // Signal to the user that it failed. We pass the same transaction
+            // object for simplicity here.
+            _completer.completeError(tx);
+            _payment = null;
+            _completer = null;
+          }
           break;
         default:
           // TODO: handle other states
@@ -47,8 +83,7 @@ class _MyAppState extends State<MyApp> {
   // ID of the product we are selling.
   static const String kProductId = 'com.example.product.id';
 
-  final SKPaymentTransactionObserver _observer =
-      ExamplePaymentTransactionObserver();
+  final ExamplePurchaseProcessor _observer = ExamplePurchaseProcessor();
 
   /// Whether user is allowed to make payments
   bool _canMakePayments;
@@ -56,8 +91,9 @@ class _MyAppState extends State<MyApp> {
   /// The product we want to provide for user to purchase.
   SKProduct _product;
 
-  // Payment being processed.
-  SKPayment _payment;
+  Future<SKPaymentTransaction> _purchaseFuture;
+
+  SKPaymentTransaction _transaction;
 
   @override
   void initState() {
@@ -97,9 +133,16 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     Widget child;
-    if (_payment != null) {
-      // Payment processing in progress, show loader
-      child = CircularProgressIndicator();
+    if (_purchaseFuture != null) {
+      // Payment processing
+      if (_transaction == null) {
+        child = CircularProgressIndicator();
+      } else if (_transaction.transactionState ==
+          SKPaymentTransactionState.purchased) {
+        child = Text('Enjoy your product');
+      } else {
+        child = Text('Purchase failed: ${_transaction.transactionState}');
+      }
     } else if (_canMakePayments == null) {
       // Haven't initialized yet, show loader
       child = CircularProgressIndicator();
@@ -123,10 +166,28 @@ class _MyAppState extends State<MyApp> {
 
   void _purchase() {
     setState(() {
-      _payment = SKPayment.withProduct(_product);
       // Initiate purchase flow. From this point purchase handling must be
       // done in the transaction observer's `didUpdateTransactions` method.
-      StoreKit.instance.paymentQueue.addPayment(_payment);
+      _purchaseFuture = _observer.purchase(_product);
+      _purchaseFuture.then(_handlePurchase).catchError(_handlePurchaseError);
     });
+  }
+
+  void _handlePurchase(SKPaymentTransaction tx) {
+    setState(() {
+      _transaction = tx;
+    });
+  }
+
+  void _handlePurchaseError(error) {
+    if (error is SKPaymentTransaction) {
+      setState(() {
+        _transaction = error;
+      });
+    } else {
+      setState(() {
+        // TODO: set error state
+      });
+    }
   }
 }

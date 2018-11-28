@@ -32,6 +32,21 @@ handling of in-app subscriptions.
 Interacting with StoreKit in Flutter is almost 100% identical to the native ObjectiveC
 interface.
 
+#### Prerequisites
+
+Make sure to
+
+* Complete Agreements, Tax and Bankings
+* Setup your products in AppStore Connect
+* Enable In-App Purchases for your app in XCode
+
+#### Complete example
+
+Checkout a complete example of interacting with StoreKit in the example app in this repo. Note
+that in-app purchases is a complex topic and it would be really hard to cover everything
+in a simple example app like this, so it is highly recommended to read official documentation
+on setting up in-app purchases for each platform.
+
 #### Getting products
 
 ```dart
